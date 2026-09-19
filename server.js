@@ -20,11 +20,20 @@ const getTodayThai = () => {
 
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-function renderHtml(fileName) {
+// 📌 ปรับปรุงฟังก์ชัน renderHtml ให้ดึงค่า Settings จาก Supabase มาฝังลงในหน้าเว็บโดยอัตโนมัติ
+async function renderHtml(fileName) {
   const filePath = path.join(__dirname, 'public', fileName + '.html');
   if (!fs.existsSync(filePath)) return 'File not found';
   
   let content = fs.readFileSync(filePath, 'utf8');
+  
+  // ดึงข้อมูลการตั้งค่าจาก Supabase มารอไว้
+  let settingsObj = {};
+  try {
+    const { data } = await supabase.from('Settings').select('*');
+    (data || []).forEach(s => { settingsObj[s.key] = s.value; });
+  } catch (e) {}
+
   const includeRegex = /<\?!=\s*include\('(.*?)'\);\s*\?>/g;
   content = content.replace(includeRegex, (match, p1) => {
     try {
@@ -33,14 +42,16 @@ function renderHtml(fileName) {
     } catch (e) { return ''; }
   });
 
-  const bootData = JSON.stringify({ ready: true, settings: {} });
+  // ฝังข้อมูล settings ลงในตัวแปร BOOT ทันทีที่โหลดหน้าเว็บ
+  const bootData = JSON.stringify({ ready: true, settings: settingsObj });
   content = content.replace(/<\?!=\s*BOOT\s*\?>/g, bootData);
   return content;
 }
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   try {
-    res.send(renderHtml('Index'));
+    const html = await renderHtml('Index');
+    res.send(html);
   } catch (err) {
     res.status(500).send('Error loading application: ' + err.message);
   }
@@ -89,6 +100,11 @@ app.post('/api/v1/router', async (req, res) => {
 
         const roleLabels = { admin: 'ผู้ดูแลระบบ', director: 'ผู้บริหารสถานศึกษา', homeroom: 'ครูประจำชั้น', teacher: 'ครูผู้สอน', parent: 'ผู้ปกครอง' };
 
+        // ดึงการตั้งค่าล่าสุดส่งกลับไปให้หน้าบ้านด้วย
+        const { data: settingsData } = await supabase.from('Settings').select('*');
+        const settingsMap = {};
+        (settingsData || []).forEach(s => { settingsMap[s.key] = s.value; });
+
         return res.json({
           ok: true,
           token: sessionToken,
@@ -108,7 +124,7 @@ app.post('/api/v1/router', async (req, res) => {
           boot: {
             app: { name: 'CLASSHUB', version: '1.0.0' },
             has_users: true,
-            settings: {},
+            settings: settingsMap,
             user: { id: user.id, username: user.username, full_name: user.full_name, role: user.role },
             home: { kpi: { students: 0, present: 0, absent: 0, watch: 0 } },
             classes: []
@@ -139,6 +155,10 @@ app.post('/api/v1/router', async (req, res) => {
         }
         const { data: years } = await supabase.from('AcademicYears').select('*').eq('is_active', true).maybeSingle();
         const { data: classes } = await supabase.from('Classrooms').select('*');
+        const { data: settingsData } = await supabase.from('Settings').select('*');
+        const settingsMap = {};
+        (settingsData || []).forEach(s => { settingsMap[s.key] = s.value; });
+
         return res.json({
           ok: true,
           app: { name: 'CLASSHUB', version: '1.0.0' },
@@ -151,6 +171,7 @@ app.post('/api/v1/router', async (req, res) => {
           ],
           has_users: true,
           user: currentUser,
+          settings: settingsMap,
           year: years || { id: 'Y1', label: 'ปีการศึกษา 2569', is_active: true },
           classes: classes || [],
           tasks_count: 0
