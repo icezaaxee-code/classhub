@@ -193,8 +193,8 @@
 
       if (MUTATION_RE.test(action)) bustCache();
 
-      // เชื่อมต่อไปยัง Node.js Backend บน localhost:3000
-      var API_URL = 'http://localhost:3000/api/v1/router';
+      // ใช้เส้นทางสัมพัทธ์ เพื่อให้รองรับทั้งรันบนเครื่องตัวเองและบน Vercel
+      var API_URL = '/api/v1/router';
 
       fetch(API_URL, {
         method: 'POST',
