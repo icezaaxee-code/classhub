@@ -744,13 +744,9 @@ app.post('/api/v1/router', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
-// สำหรับรันแบบ Local ปกติ
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`🚀 CLASSHUB Backend running on http://localhost:${PORT}`);
   });
 }
-
-// สำหรับให้ Vercel เรียกใช้งานเป็น Serverless
 module.exports = app;
