@@ -64,6 +64,7 @@ app.post('/api/v1/router', async (req, res) => {
     console.log(`📥 Action requested: ${action}`);
 
     switch (action) {
+      /* ── AUTH & PROFILE ── */
       case 'auth.login': {
         const username = String(payload?.username || '').trim().toLowerCase();
         const password = String(payload?.password || '');
@@ -178,9 +179,171 @@ app.post('/api/v1/router', async (req, res) => {
         });
       }
 
+      case 'auth.update_profile': {
+        if (token) {
+          const { data: session } = await supabase.from('Sessions').select('*').eq('token', token).maybeSingle();
+          if (session) {
+            await supabase.from('Users').update({ full_name: payload.full_name, position: payload.position, email: payload.email, phone: payload.phone, photo_url: payload.photo_data || payload.photo_url }).eq('id', session.user_id);
+            const { data: user } = await supabase.from('Users').select('*').eq('id', session.user_id).maybeSingle();
+            return res.json({ ok: true, user });
+          }
+        }
+        return res.json({ ok: false, error: 'Unauthorized' });
+      }
+
+      case 'auth.change_password': {
+        if (token) {
+          const { data: session } = await supabase.from('Sessions').select('*').eq('token', token).maybeSingle();
+          if (session) {
+            await supabase.from('Users').update({ password: payload.new_password }).eq('id', session.user_id);
+            return res.json({ ok: true, message: 'เปลี่ยนรหัสผ่านเรียบร้อย' });
+          }
+        }
+        return res.json({ ok: false, error: 'Unauthorized' });
+      }
+
+      /* ── USERS & RBAC ── */
+      case 'user.list': {
+        const { data: users } = await supabase.from('Users').select('*');
+        const roleLabels = { admin: 'ผู้ดูแลระบบ', director: 'ผู้บริหารสถานศึกษา', homeroom: 'ครูประจำชั้น', teacher: 'ครูผู้สอน', parent: 'ผู้ปกครอง' };
+        return res.json({
+          ok: true,
+          items: (users || []).map(u => ({
+            id: u.id, username: u.username, full_name: u.full_name, role: u.role,
+            role_label: roleLabels[u.role] || u.role,
+            email: u.email, phone: u.phone, is_active: u.is_active === 'true' || u.is_active === true,
+            homeroom_names: [], 
+            extra_caps: u.extra_caps || [], 
+            deny_caps: u.deny_caps || [],
+            position: u.position || '',
+            photo_url: u.photo_url || '',
+            last_login_at: u.last_login_at || null
+          })),
+          roles: [
+            { code: 'admin', label: 'ผู้ดูแลระบบ' },
+            { code: 'director', label: 'ผู้บริหารสถานศึกษา' },
+            { code: 'homeroom', label: 'ครูประจำชั้น' },
+            { code: 'teacher', label: 'ครูผู้สอน' },
+            { code: 'parent', label: 'ผู้ปกครอง' }
+          ]
+        });
+      }
+
       case 'user.options': {
         const { data: users } = await supabase.from('Users').select('id, full_name, role');
         return res.json({ ok: true, items: users || [] });
+      }
+
+      case 'user.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Users').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'USR-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Users').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'user.delete': {
+        await supabase.from('Users').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'user.reset': {
+        await supabase.from('Users').update({ password: payload.password }).eq('id', payload.id);
+        await supabase.from('Sessions').delete().eq('user_id', payload.id);
+        return res.json({ ok: true, message: 'ตั้งรหัสผ่านใหม่และยกเลิกเซสชันเดิมเรียบร้อย' });
+      }
+
+      case 'rbac.save': {
+        await supabase.from('Users').update({ extra_caps: payload.extra_caps, deny_caps: payload.deny_caps }).eq('id', payload.id);
+        return res.json({ ok: true });
+      }
+
+      case 'rbac.matrix': {
+        const caps = [
+          'dashboard.view', 'search.global',
+          'student.view_all', 'student.view_own', 'student.view_self', 'student.manage', 'student.import', 'student.export', 'student.sensitive',
+          'attendance.view_all', 'attendance.view_own', 'attendance.view_self', 'attendance.manage',
+          'daily.view_all', 'daily.view_own', 'daily.manage',
+          'activity.view_all', 'activity.view_own', 'activity.view_self', 'activity.manage',
+          'behavior.view_all', 'behavior.view_own', 'behavior.view_self', 'behavior.manage',
+          'contact.view_all', 'contact.view_own', 'contact.manage',
+          'visit.view_all', 'visit.view_own', 'visit.manage',
+          'health.view_all', 'health.view_own', 'health.manage',
+          'case.view_all', 'case.view_own', 'case.manage',
+          'assign.view_all', 'assign.view_own', 'assign.manage',
+          'doc.view_all', 'doc.view_own', 'doc.manage',
+          'calendar.view_all', 'calendar.view_own', 'calendar.view_self', 'calendar.manage',
+          'report.view_all', 'report.view_own', 'notify.view',
+          'user.manage', 'rbac.manage', 'master.manage', 'settings.manage', 'audit.view', 'system.reset', 'system.backup'
+        ];
+        return res.json({
+          ok: true,
+          caps,
+          roles: [
+            { code: 'admin', label: 'ผู้ดูแลระบบ', grid: caps.map(() => true) },
+            { code: 'director', label: 'ผู้บริหารสถานศึกษา', grid: caps.map(c => c.includes('view') || c.includes('report') || c.includes('audit')) },
+            { code: 'homeroom', label: 'ครูประจำชั้น', grid: caps.map(c => !c.includes('user.') && !c.includes('rbac.')) },
+            { code: 'teacher', label: 'ครูผู้สอน', grid: caps.map(c => c.includes('view') || c.includes('manage')) },
+            { code: 'parent', label: 'ผู้ปกครอง', grid: caps.map(c => c.includes('view_self')) }
+          ]
+        });
+      }
+
+      /* ── CLASSROOM ── */
+      case 'class.list': {
+        const { data: classes } = await supabase.from('Classrooms').select('*');
+        const { data: students } = await supabase.from('Students').select('*').eq('status', 'กำลังศึกษา');
+        const { data: users } = await supabase.from('Users').select('*');
+        const userMap = {};
+        (users || []).forEach(u => { userMap[u.id] = u.full_name; });
+
+        const items = (classes || []).map(c => {
+          const clsStudents = (students || []).filter(s => s.class_id === c.id);
+          return {
+            ...c,
+            student_count: clsStudents.length,
+            male: clsStudents.filter(s => s.gender === 'ชาย').length,
+            female: clsStudents.filter(s => s.gender === 'หญิง').length,
+            homeroom_name: userMap[c.homeroom_id] || 'ยังไม่ได้กำหนด'
+          };
+        });
+        return res.json({ ok: true, items });
+      }
+
+      case 'class.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Classrooms').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'CLS-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Classrooms').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'class.delete': {
+        await supabase.from('Classrooms').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      /* ── STUDENT & PARENT ── */
+      case 'student.list': {
+        const { data: students } = await supabase.from('Students').select('*');
+        const items = (students || []).map(s => ({
+          ...s,
+          full_name: `${s.prefix || ''}${s.first_name} ${s.last_name}`.trim(),
+          age: s.birthdate ? new Date().getFullYear() - new Date(s.birthdate).getFullYear() : null
+        }));
+        return res.json({ ok: true, items, total: items.length, page: 1, pages: 1, can: { manage: true, import: true, export: true }, kpi: { total: items.length, male: items.filter(s => s.gender === 'ชาย').length, female: items.filter(s => s.gender === 'หญิง').length, watch: items.filter(s => s.watch_level && s.watch_level !== 'ทั่วไป').length, disadvantage: items.filter(s => s.disadvantage).length } });
       }
 
       case 'student.options': {
@@ -204,16 +367,6 @@ app.post('/api/v1/router', async (req, res) => {
       case 'student.preview':
       case 'student.commit': {
         return res.json({ ok: true, summary: { create: 0, update: 0, error: 0, created: 0, updated: 0, parents: 0 }, errors: [] });
-      }
-
-      case 'student.list': {
-        const { data: students } = await supabase.from('Students').select('*');
-        const items = (students || []).map(s => ({
-          ...s,
-          full_name: `${s.prefix || ''}${s.first_name} ${s.last_name}`.trim(),
-          age: s.birthdate ? new Date().getFullYear() - new Date(s.birthdate).getFullYear() : null
-        }));
-        return res.json({ ok: true, items, total: items.length, page: 1, pages: 1, can: { manage: true, import: true, export: true }, kpi: { total: items.length, male: items.filter(s => s.gender === 'ชาย').length, female: items.filter(s => s.gender === 'หญิง').length, watch: items.filter(s => s.watch_level && s.watch_level !== 'ทั่วไป').length, disadvantage: items.filter(s => s.disadvantage).length } });
       }
 
       case 'student.get': {
@@ -298,26 +451,72 @@ app.post('/api/v1/router', async (req, res) => {
         return res.json({ ok: true });
       }
 
-      case 'class.list': {
-        const { data: classes } = await supabase.from('Classrooms').select('*');
-        const { data: students } = await supabase.from('Students').select('*').eq('status', 'กำลังศึกษา');
-        const { data: users } = await supabase.from('Users').select('*');
-        const userMap = {};
-        (users || []).forEach(u => { userMap[u.id] = u.full_name; });
+      case 'parent.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Parents').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'PAR-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Parents').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
 
-        const items = (classes || []).map(c => {
-          const clsStudents = (students || []).filter(s => s.class_id === c.id);
-          return {
-            ...c,
-            student_count: clsStudents.length,
-            male: clsStudents.filter(s => s.gender === 'ชาย').length,
-            female: clsStudents.filter(s => s.gender === 'หญิง').length,
-            homeroom_name: userMap[c.homeroom_id] || 'ยังไม่ได้กำหนด'
-          };
-        });
+      case 'parent.delete': {
+        await supabase.from('Parents').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      /* ── SETTINGS ── */
+      case 'setting.list': {
+        const { data } = await supabase.from('Settings').select('*');
+        const items = {};
+        (data || []).forEach(s => { items[s.key] = s.value; });
         return res.json({ ok: true, items });
       }
 
+      case 'setting.save': {
+        const patch = payload || {};
+        
+        async function uploadBase64ToSupabase(base64Data, fileName) {
+          if (!base64Data || !base64Data.startsWith('data:')) return base64Data;
+          try {
+            const matches = base64Data.match(/^data:(.+);base64,(.+)$/);
+            if (!matches) return base64Data;
+            const buffer = Buffer.from(matches[2], 'base64');
+            const filePath = `settings/${Date.now()}_${fileName}.jpg`;
+            const { error } = await supabase.storage.from('school-assets').upload(filePath, buffer, { contentType: matches[1], upsert: true });
+            if (error) return base64Data;
+            const { data } = supabase.storage.from('school-assets').getPublicUrl(filePath);
+            return data.publicUrl;
+          } catch (e) { return base64Data; }
+        }
+
+        if (patch.logo_data) { patch.logo_image = await uploadBase64ToSupabase(patch.logo_data, 'logo'); delete patch.logo_data; }
+        if (patch.hero_data) { patch.hero_image = await uploadBase64ToSupabase(patch.hero_data, 'hero'); delete patch.hero_data; }
+        if (patch.devlogo_data) { patch.dev_logo = await uploadBase64ToSupabase(patch.devlogo_data, 'devlogo'); delete patch.devlogo_data; }
+
+        for (const [key, value] of Object.entries(patch)) {
+          if (value !== undefined && !key.includes('_data')) {
+            await supabase.from('Settings').upsert({ 
+              key, 
+              value: String(value), 
+              updated_at: new Date().toISOString() 
+            }, { onConflict: 'key' });
+          }
+        }
+
+        const { data: updatedSettings } = await supabase.from('Settings').select('*');
+        const items = {};
+        (updatedSettings || []).forEach(s => { items[s.key] = s.value; });
+
+        return res.json({ ok: true, items });
+      }
+
+      /* ── MODULE LISTS & SAVES ── */
       case 'year.list': {
         const { data } = await supabase.from('AcademicYears').select('*');
         return res.json({ ok: true, items: data || [] });
@@ -332,14 +531,223 @@ app.post('/api/v1/router', async (req, res) => {
         return res.json({ ok: true, class_name: 'ห้องเรียน', dates: [], rows: [], kpi: { present: 0, absent: 0, late: 0 }, rate: 100 });
       }
 
-      case 'attendance.save':
-      case 'behavior.save':
-      case 'visit.save':
-      case 'assign.save':
-      case 'event.save':
-      case 'case.followup':
-      case 'parent.save': {
-        return res.json({ ok: true, saved: 1, item: { id: 'TMP-1' } });
+      case 'attendance.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Attendance').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'ATD-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Attendance').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'behavior.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Behaviors').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'BHV-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Behaviors').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+      
+      case 'behavior.delete': {
+        await supabase.from('Behaviors').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'visit.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('HomeVisits').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'VST-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('HomeVisits').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'visit.delete': {
+        await supabase.from('HomeVisits').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'case.save':
+      case 'case.followup': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('StudentCases').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'CAS-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('StudentCases').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'case.delete': {
+        await supabase.from('StudentCases').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'daily.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('DailyLogs').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'LOG-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('DailyLogs').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'daily.delete': {
+        await supabase.from('DailyLogs').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'health.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('HealthRecords').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'HLT-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('HealthRecords').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'health.delete': {
+        await supabase.from('HealthRecords').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'infirmary.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('HealthVisits').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'INF-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('HealthVisits').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'infirmary.delete': {
+        await supabase.from('HealthVisits').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'contact.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('ParentContacts').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'CON-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('ParentContacts').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'contact.delete': {
+        await supabase.from('ParentContacts').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'activity.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Activities').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'ACT-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Activities').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'activity.delete': {
+        await supabase.from('Activities').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'assign.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Assignments').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'ASN-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Assignments').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'assign.delete': {
+        await supabase.from('Assignments').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
+      case 'event.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('CalendarEvents').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'EVT-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('CalendarEvents').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'doc.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Documents').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'DOC-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Documents').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'doc.delete': {
+        await supabase.from('Documents').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
       }
 
       case 'daily.list': {
@@ -561,6 +969,39 @@ app.post('/api/v1/router', async (req, res) => {
         return res.json({ ok: true, items, total: items.length, pages: 1, page: 1, kpi: { total: items.length, upcoming: 0, done: 0, month: 0 }, categories: ['กิจกรรมหน้าเสาธง', 'กิจกรรมวันสำคัญ', 'ทัศนศึกษา', 'กีฬาสี', 'ลูกเสือ-เนตรนารี', 'ชุมนุม', 'จิตอาสา', 'กิจกรรมอื่น'], classes: (classes || []).map(c => ({ id: c.id, name: c.name || `${c.level}/${c.room}` })), can: { manage: true } });
       }
 
+      /* ── LOOKUPS & SYSTEM ── */
+      case 'lookup.list': {
+        const { data } = await supabase.from('Lookups').select('*');
+        const groupsMap = {};
+        (data || []).forEach(l => {
+          if (!groupsMap[l.group]) groupsMap[l.group] = { code: l.group, label: l.group };
+        });
+        return res.json({
+          ok: true,
+          groups: Object.values(groupsMap),
+          items: data || []
+        });
+      }
+
+      case 'lookup.save': {
+        const dataIn = payload;
+        let result;
+        if (dataIn.id) {
+          const { data } = await supabase.from('Lookups').update(dataIn).eq('id', dataIn.id).select();
+          result = data ? data[0] : dataIn;
+        } else {
+          dataIn.id = 'LKP-' + Math.floor(100000 + Math.random() * 900000);
+          const { data } = await supabase.from('Lookups').insert([dataIn]).select();
+          result = data ? data[0] : dataIn;
+        }
+        return res.json({ ok: true, item: result });
+      }
+
+      case 'lookup.delete': {
+        await supabase.from('Lookups').delete().eq('id', payload?.id);
+        return res.json({ ok: true });
+      }
+
       case 'home.dashboard': {
         const { count: totalStudents } = await supabase.from('Students').select('*', { count: 'exact', head: true }).eq('status', 'กำลังศึกษา');
         const { data: activeYear } = await supabase.from('AcademicYears').select('*').eq('is_active', true).maybeSingle();
@@ -600,116 +1041,6 @@ app.post('/api/v1/router', async (req, res) => {
           dataRows = (data || []).map(s => [s.student_code, `${s.prefix || ''}${s.first_name} ${s.last_name}`, s.status]);
         }
         return res.json({ ok: true, key: reportKey, head: reportHead, rows: dataRows, filters: { from: '2026-05-01', to: getTodayThai(), class_name: 'ทุกห้อง' }, summary: [] });
-      }
-
-      case 'setting.list': {
-        const { data } = await supabase.from('Settings').select('*');
-        const items = {};
-        (data || []).forEach(s => { items[s.key] = s.value; });
-        return res.json({ ok: true, items });
-      }
-
-      case 'setting.save': {
-        const patch = payload || {};
-        
-        for (const [key, value] of Object.entries(patch)) {
-          if (value !== undefined) {
-            await supabase.from('Settings').upsert({ 
-              key, 
-              value: String(value), 
-              updated_at: new Date().toISOString() 
-            }, { onConflict: 'key' });
-          }
-        }
-
-        const { data: updatedSettings } = await supabase.from('Settings').select('*');
-        const items = {};
-        (updatedSettings || []).forEach(s => { items[s.key] = s.value; });
-
-        return res.json({ ok: true, items });
-      }
-
-      case 'user.list': {
-        const { data: users } = await supabase.from('Users').select('*');
-        const roleLabels = { admin: 'ผู้ดูแลระบบ', director: 'ผู้บริหารสถานศึกษา', homeroom: 'ครูประจำชั้น', teacher: 'ครูผู้สอน', parent: 'ผู้ปกครอง' };
-        return res.json({
-          ok: true,
-          items: (users || []).map(u => ({
-            id: u.id, username: u.username, full_name: u.full_name, role: u.role,
-            role_label: roleLabels[u.role] || u.role,
-            email: u.email, phone: u.phone, is_active: true, homeroom_names: [], extra_caps: [], deny_caps: []
-          })),
-          roles: [
-            { code: 'admin', label: 'ผู้ดูแลระบบ' },
-            { code: 'director', label: 'ผู้บริหารสถานศึกษา' },
-            { code: 'homeroom', label: 'ครูประจำชั้น' },
-            { code: 'teacher', label: 'ครูผู้สอน' },
-            { code: 'parent', label: 'ผู้ปกครอง' }
-          ]
-        });
-      }
-
-      case 'user.save': {
-        const dataIn = payload;
-        let result;
-        if (dataIn.id) {
-          const { data } = await supabase.from('Users').update(dataIn).eq('id', dataIn.id).select();
-          result = data ? data[0] : dataIn;
-        } else {
-          dataIn.id = 'USR-' + Math.floor(100000 + Math.random() * 900000);
-          const { data } = await supabase.from('Users').insert([dataIn]).select();
-          result = data ? data[0] : dataIn;
-        }
-        return res.json({ ok: true, item: result });
-      }
-
-      case 'user.delete': {
-        await supabase.from('Users').delete().eq('id', payload?.id);
-        return res.json({ ok: true });
-      }
-
-      case 'rbac.matrix': {
-        const caps = [
-          'dashboard.view', 'search.global',
-          'student.view_all', 'student.view_own', 'student.view_self', 'student.manage', 'student.import', 'student.export', 'student.sensitive',
-          'attendance.view_all', 'attendance.view_own', 'attendance.view_self', 'attendance.manage',
-          'daily.view_all', 'daily.view_own', 'daily.manage',
-          'activity.view_all', 'activity.view_own', 'activity.view_self', 'activity.manage',
-          'behavior.view_all', 'behavior.view_own', 'behavior.view_self', 'behavior.manage',
-          'contact.view_all', 'contact.view_own', 'contact.manage',
-          'visit.view_all', 'visit.view_own', 'visit.manage',
-          'health.view_all', 'health.view_own', 'health.manage',
-          'case.view_all', 'case.view_own', 'case.manage',
-          'assign.view_all', 'assign.view_own', 'assign.manage',
-          'doc.view_all', 'doc.view_own', 'doc.manage',
-          'calendar.view_all', 'calendar.view_own', 'calendar.view_self', 'calendar.manage',
-          'report.view_all', 'report.view_own', 'notify.view',
-          'user.manage', 'rbac.manage', 'master.manage', 'settings.manage', 'audit.view', 'system.reset', 'system.backup'
-        ];
-        return res.json({
-          ok: true,
-          caps,
-          roles: [
-            { code: 'admin', label: 'ผู้ดูแลระบบ', grid: caps.map(() => true) },
-            { code: 'director', label: 'ผู้บริหารสถานศึกษา', grid: caps.map(c => c.includes('view') || c.includes('report') || c.includes('audit')) },
-            { code: 'homeroom', label: 'ครูประจำชั้น', grid: caps.map(c => !c.includes('user.') && !c.includes('rbac.')) },
-            { code: 'teacher', label: 'ครูผู้สอน', grid: caps.map(c => c.includes('view') || c.includes('manage')) },
-            { code: 'parent', label: 'ผู้ปกครอง', grid: caps.map(c => c.includes('view_self')) }
-          ]
-        });
-      }
-
-      case 'lookup.list': {
-        const { data } = await supabase.from('Lookups').select('*');
-        const groupsMap = {};
-        (data || []).forEach(l => {
-          if (!groupsMap[l.group]) groupsMap[l.group] = { code: l.group, label: l.group };
-        });
-        return res.json({
-          ok: true,
-          groups: Object.values(groupsMap),
-          items: data || []
-        });
       }
 
       case 'audit.list': {
