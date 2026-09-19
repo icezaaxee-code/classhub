@@ -57,6 +57,21 @@ app.get('/', async (req, res) => {
   }
 });
 
+const ROLE_CAPABILITIES = {
+  admin: ['*'],
+  director: ['dashboard.view', 'search.global', 'student.view_all', 'attendance.view_all', 'daily.view_all', 'activity.view_all', 'behavior.view_all', 'contact.view_all', 'visit.view_all', 'health.view_all', 'case.view_all', 'assign.view_all', 'doc.view_all', 'calendar.view_all', 'report.view_all', 'notify.view', 'audit.view'],
+  homeroom: ['dashboard.view', 'search.global', 'student.view_own', 'student.manage', 'attendance.view_own', 'attendance.manage', 'daily.view_own', 'daily.manage', 'activity.view_own', 'activity.manage', 'behavior.view_own', 'behavior.manage', 'contact.view_own', 'contact.manage', 'visit.view_own', 'visit.manage', 'health.view_own', 'case.view_own', 'case.manage', 'assign.view_own', 'assign.manage', 'doc.view_own', 'doc.manage', 'calendar.view_own', 'calendar.manage', 'report.view_own', 'notify.view'],
+  teacher: ['dashboard.view', 'search.global', 'student.view_all', 'attendance.view_all', 'attendance.manage', 'daily.view_all', 'activity.view_all', 'behavior.view_all', 'behavior.manage', 'contact.view_all', 'visit.view_all', 'health.view_all', 'case.view_all', 'assign.view_own', 'assign.manage', 'doc.view_all', 'calendar.view_all', 'notify.view'],
+  parent: ['dashboard.view', 'student.view_self', 'attendance.view_self', 'activity.view_self', 'behavior.view_self', 'calendar.view_self', 'notify.view']
+};
+
+function getUserCaps(role, extraCaps = [], denyCaps = []) {
+  if (role === 'admin') return ['*'];
+  let caps = [...(ROLE_CAPABILITIES[role] || [])];
+  if (Array.isArray(extraCaps)) caps.push(...extraCaps);
+  const denyArr = Array.isArray(denyCaps) ? denyCaps : [];
+  return caps.filter(c => !denyArr.includes(c));
+}
 app.post('/api/v1/router', async (req, res) => {
   const { action, token, payload } = req.body;
 
@@ -120,7 +135,7 @@ app.post('/api/v1/router', async (req, res) => {
             position: user.position,
             photo_url: user.photo_url,
             homeroom_ids: user.homeroom_ids ? user.homeroom_ids.split(',') : [],
-            caps: ['*']
+            caps: getUserCaps(user.role, user.extra_caps, user.deny_caps)
           },
           boot: {
             app: { name: 'CLASSHUB', version: '1.0.0' },
@@ -146,10 +161,10 @@ app.post('/api/v1/router', async (req, res) => {
             const { data: user } = await supabase.from('Users').select('*').eq('id', session.user_id).maybeSingle();
             if (user && (user.is_active === 'true' || user.is_active === true)) {
               const roleLabels = { admin: 'ผู้ดูแลระบบ', director: 'ผู้บริหารสถานศึกษา', homeroom: 'ครูประจำชั้น', teacher: 'ครูผู้สอน', parent: 'ผู้ปกครอง' };
-              currentUser = {
+             currentUser = {
                 id: user.id, username: user.username, full_name: user.full_name, role: user.role,
                 role_label: roleLabels[user.role] || user.role,
-                caps: ['*']
+                caps: getUserCaps(user.role, user.extra_caps, user.deny_caps)
               };
             }
           }
@@ -316,12 +331,13 @@ app.post('/api/v1/router', async (req, res) => {
         return res.json({ ok: true, items });
       }
 
-      case 'class.save': {
-        const dataIn = payload;
+     case 'class.save': {
+        const { id, level, room, name, homeroom_id } = payload;
+        const dataIn = { level, room, name, homeroom_id }; // กรองเฉพาะข้อมูลที่มีจริงในฐานข้อมูล
         let result;
-        if (dataIn.id) {
-          const { data } = await supabase.from('Classrooms').update(dataIn).eq('id', dataIn.id).select();
-          result = data ? data[0] : dataIn;
+        if (id) {
+          const { data } = await supabase.from('Classrooms').update(dataIn).eq('id', id).select();
+          result = data ? data[0] : { id, ...dataIn };
         } else {
           dataIn.id = 'CLS-' + Math.floor(100000 + Math.random() * 900000);
           const { data } = await supabase.from('Classrooms').insert([dataIn]).select();
