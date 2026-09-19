@@ -333,7 +333,7 @@ app.post('/api/v1/router', async (req, res) => {
 
      case 'class.save': {
         const { id, level, room, name, homeroom_id } = payload;
-        const dataIn = { level, room, name, homeroom_id }; // กรองเฉพาะข้อมูลที่มีจริงในฐานข้อมูล
+        const dataIn = { level, room, name, homeroom_id }; // กรองข้อมูลเฉพาะคอลัมน์ที่มีอยู่จริง
         let result;
         if (id) {
           const { data } = await supabase.from('Classrooms').update(dataIn).eq('id', id).select();
