@@ -73,7 +73,7 @@
           '</div>'
       }) +
       panel({
-        title: 'ตราโรงเรียนและภาพหน้าปก', sub: 'อัปโหลดจากไฟล์ในเครื่อง — ระบบตรวจสอบชนิดไฟล์จากเนื้อไฟล์จริง',
+        title: 'ตราโรงเรียนและภาพหน้าปก', sub: 'อัปโหลดจากไฟล์ในเครื่อง — ระบบบีบอัดภาพอัตโนมัติเพื่อป้องกันขนาดไฟล์เกินกำหนด',
         icon: 'image-fill', tone: 'info',
         body: '<div class="grid g-2">' +
           '<div class="upload"><div class="upload-pv" id="pv-logo">' +
@@ -136,12 +136,42 @@
       }) +
       (Store.user && Store.user.role === 'admin' ? dangerZone() : '');
 
+    // 📌 ฟังก์ชันบีบอัดรูปภาพอัตโนมัติฝั่งเบราว์เซอร์
+    function compressAndPreview(fileInput, pvSelector, maxWidth, maxHeight) {
+      if (!fileInput.files || !fileInput.files[0]) return;
+      var file = fileInput.files[0];
+      var reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = function (e) {
+        var img = new Image();
+        img.src = e.target.result;
+        img.onload = function () {
+          var canvas = document.createElement('canvas');
+          var w = img.width, h = img.height;
+          if (w > h) {
+            if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
+          } else {
+            if (h > maxHeight) { w *= maxHeight / h; h = maxHeight; }
+          }
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); // ปรับคุณภาพ 70% ให้ขนาดเล็กปลอดภัย
+          
+          fileInput.dataset.url = compressedDataUrl;
+          var pv = $(pvSelector);
+          if (pv) pv.innerHTML = '<img src="' + compressedDataUrl + '" alt="Preview">';
+        };
+      };
+    }
+
     var lg = $('#set-logo');
-    if (lg) lg.addEventListener('change', function () { A.previewPhoto(lg, '#pv-logo'); });
+    if (lg) lg.addEventListener('change', function () { compressAndPreview(lg, '#pv-logo', 500, 500); });
     var hr = $('#set-hero');
-    if (hr) hr.addEventListener('change', function () { A.previewPhoto(hr, '#pv-heroimg'); });
+    if (hr) hr.addEventListener('change', function () { compressAndPreview(hr, '#pv-heroimg', 1200, 800); });
     var dl = $('#set-devlogo');
-    if (dl) dl.addEventListener('change', function () { A.previewPhoto(dl, '#pv-devlogo'); });
+    if (dl) dl.addEventListener('change', function () { compressAndPreview(dl, '#pv-devlogo', 300, 300); });
 
    var sv = $('#set-save');
     if (sv) sv.addEventListener('click', function () {
@@ -151,51 +181,16 @@
         if (typeof data[k] === 'boolean') data[k] = data[k] ? 'true' : 'false';
       });
       
-      // 📌 ฟังก์ชันช่วยอัปโหลดไฟล์ตรงเข้า Supabase Storage จากฝั่งเบราว์เซอร์เพื่อหลบข้อจำกัด 413 ของ Vercel
-      A.spinShow('กำลังอัปโหลดรูปภาพและบันทึกข้อมูล...');
-      
-      async function uploadFileToSupabaseStorage(fileInput, folderName) {
-        if (!fileInput || !fileInput.files || fileInput.files.length === 0) return null;
-        var file = fileInput.files[0];
-        var fileExt = file.name.split('.').pop();
-        var fileName = folderName + '/' + Date.now() + '_' + Math.random().toString(36.substring(2, 7)) + '.' + fileExt;
-        
-        // เรียกใช้งาน Supabase Client ฝั่งเบราว์เซอร์ (สมมติว่ามีการประกาศตัวแปร supabase ไว้แล้ว หรือใช้ผ่าน A.supabase)
-        // หากโปรเจกต์ของคุณเชื่อมต่อ Supabase client ไว้ ให้ใช้คำสั่งอัปโหลดตรงนี้ครับ:
-        /*
-        var { data: uploadData, error } = await window._supabase.storage
-          .from('school-assets')
-          .upload(fileName, file, { cacheControl: '3600', upsert: true });
-        if (error) throw error;
-        var { data: publicUrlData } = window._supabase.storage
-          .from('school-assets')
-          .getPublicUrl(fileName);
-        return publicUrlData.publicUrl;
-        */
-        
-        // หากต้องการส่งผ่าน Base64 ขนาดเล็กผ่าน API แนะนำให้บีบอัดภาพก่อน หรือใช้ fileinput.dataset.url ที่แปลงเป็น Base64 ขนาดเล็ก
-        return fileInput.dataset.url || null;
-      }
+      if (lg && lg.dataset.url) data.logo_data = lg.dataset.url;
+      if (hr && hr.dataset.url) data.hero_data = hr.dataset.url;
+      if (dl && dl.dataset.url) data.devlogo_data = dl.dataset.url;
 
-      // ตรวจสอบและอัปโหลดรูปภาพแต่ละตัว
-      Promise.all([
-        lg && lg.files && lg.files.length > 0 ? uploadFileToSupabaseStorage(lg, 'logo') : Promise.resolve(lg && lg.dataset.url ? lg.dataset.url : null),
-        hr && hr.files && hr.files.length > 0 ? uploadFileToSupabaseStorage(hr, 'hero') : Promise.resolve(hr && hr.dataset.url ? hr.dataset.url : null),
-        dl && dl.files && dl.files.length > 0 ? uploadFileToSupabaseStorage(dl, 'devlogo') : Promise.resolve(dl && dl.dataset.url ? dl.dataset.url : null)
-      ]).then(function(urls) {
-        if (urls[0]) data.logo_image = urls[0];
-        if (urls[1]) data.hero_image = urls[1];
-        if (urls[2]) data.dev_logo = urls[2];
-
-        return call('setting.save', data);
-      }).then(function (r) {
-        A.spinHide();
-        Store.settings = r.items || Store.settings;
-        toast('บันทึกการตั้งค่าเรียบร้อย', 'ok');
-        A.refreshShell();
-      }).catch(function (e) {
-        A.spinHide();
-        toast('เกิดข้อผิดพลาด: ' + (e.message || e), 'bad');
+      runAction(sv, {}, function () {
+        return call('setting.save', data).then(function (r) {
+          Store.settings = r.items || Store.settings;
+          toast('บันทึกการตั้งค่าเรียบร้อย', 'ok');
+          A.refreshShell();
+        });
       });
     });
     var bk = $('#set-backup');
