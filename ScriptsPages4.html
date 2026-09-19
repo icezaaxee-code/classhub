@@ -1,0 +1,942 @@
+<!--
+  App        : CLASSHUB — ศูนย์กลางงานธุรการชั้นเรียน
+  File       : ScriptsPages4.html — ตั้งค่าโรงเรียน · ผู้ใช้งาน · สิทธิ์ · ข้อมูลตั้งต้น · ประวัติการใช้งาน · ข้อมูลส่วนตัว
+  Version    : 1.0.0
+  Last Update: 2026-08-20
+  Developer  : นายอรรถสิทธิ์ คำจารย์
+  License    : ใช้งานเพื่อการศึกษาและราชการ
+  Notice     : ห้ามจำหน่าย · แบ่งปันเพื่อการศึกษาและต่อยอดเท่านั้น
+-->
+<script type="text/x-app-pages4">
+(function (W) {
+  'use strict';
+  var A = W.APP;
+  var $ = A.$, $$ = A.$$, esc = A.esc, fmt = A.fmt, num = A.num, TH = A.TH;
+  var Store = A.Store, call = A.call, hasCap = A.hasCap, toast = A.toast;
+  var hero = A.hero, panel = A.panel, statCard = A.statCard, emptyBox = A.emptyBox;
+  var pager = A.pager, avatar = A.avatar, badge = A.badge, roleChip = A.roleChip;
+  var modal = A.modal, modalClose = A.modalClose, runAction = A.runAction;
+  var buttonStates = A.buttonStates, confirmBox = A.confirmBox, selectOptions = A.selectOptions;
+  var Routes = A.Routes, guard = A.guard, loading = A.loading, fail = A.failPage;
+  var fieldTxt = A.fieldTxt, fieldSel = A.fieldSel, readForm = A.readForm;
+
+  /* ═══════════════════════════════════════════════════════════
+     ตั้งค่าโรงเรียนและระบบ
+     ═══════════════════════════════════════════════════════════ */
+  Routes['#/settings'] = {
+    cap: 'settings.manage',
+    render: function (page) {
+      loading(page, 'list');
+      Promise.all([call('setting.list', {}), call('system.status', {})]).then(function (res) {
+        var p = guard('#/settings');
+        if (!p) return;
+        paintSettings(p, res[0].items || {}, res[1]);
+      }).catch(function (e) { fail('#/settings', e); });
+    }
+  };
+
+  function paintSettings(page, s, st) {
+    var counts = st.counts || {};
+    var totalRows = Object.keys(counts).reduce(function (a, k) { return a + num(counts[k], 0); }, 0);
+    page.innerHTML =
+      hero({
+        pill: 'ตั้งค่าระบบ', pillIcon: 'gear-fill', title: 'ตั้งค่าโรงเรียนและระบบ',
+        sub: 'ข้อมูลสถานศึกษาที่ใช้แสดงบนหน้าจอและหัวกระดาษของเอกสารทุกฉบับ',
+        icon: 'gear-fill',
+        kpis: [
+          { icon: 'database-fill', label: 'ข้อมูลในระบบ', value: fmt(totalRows), unit: 'แถว' },
+          { icon: 'table', label: 'ตารางทั้งหมด', value: fmt(Object.keys(counts).length), unit: 'ตาราง' },
+          { icon: 'shield-lock-fill', label: 'ความแข็งแรงรหัสผ่าน', value: fmt(st.pbkdf2_iter), unit: 'รอบ' },
+          { icon: 'cloud-arrow-down-fill', label: 'สำรองข้อมูลล่าสุด', value: st.last_backup_at ? TH.date(st.last_backup_at) : 'ยังไม่เคย' }
+        ]
+      }) +
+      '<form id="set-form">' +
+      panel({
+        title: 'ข้อมูลสถานศึกษา', sub: 'ใช้แสดงบนหัวกระดาษของเอกสารและรายงานทุกฉบับ', icon: 'building-fill', tone: 'brand',
+        body: '<div class="form-grid">' +
+          '<div class="field full">' + fieldTxt('org_name', 'ชื่อโรงเรียน (เต็ม)', s.org_name, true, 'text') + '</div>' +
+          fieldTxt('org_short', 'ชื่อย่อ (แสดงในเมนู)', s.org_short, false, 'text') +
+          fieldTxt('org_phone', 'โทรศัพท์', s.org_phone, false, 'tel') +
+          fieldTxt('org_email', 'อีเมล', s.org_email, false, 'email') +
+          '<div class="field full">' + fieldTxt('org_affiliation', 'สังกัด', s.org_affiliation, false, 'text') + '</div>' +
+          '<div class="field full"><label>ที่อยู่</label>' +
+          '<textarea class="txt" data-f="org_address" rows="2">' + esc(s.org_address || '') + '</textarea></div>' +
+          '</div>'
+      }) +
+      panel({
+        title: 'ผู้บริหารและผู้ลงนาม', sub: 'ชื่อที่ปรากฏในช่องลงนามของเอกสารที่พิมพ์', icon: 'person-badge-fill', tone: 'acc',
+        body: '<div class="form-grid">' +
+          fieldTxt('director_name', 'ชื่อผู้อำนวยการ', s.director_name, false, 'text') +
+          fieldTxt('director_position', 'ตำแหน่ง', s.director_position, false, 'text') +
+          fieldTxt('academic_head_name', 'ชื่อหัวหน้าฝ่ายวิชาการ', s.academic_head_name, false, 'text') +
+          fieldTxt('academic_head_position', 'ตำแหน่ง', s.academic_head_position, false, 'text') +
+          '</div>'
+      }) +
+      panel({
+        title: 'ตราโรงเรียนและภาพหน้าปก', sub: 'อัปโหลดจากไฟล์ในเครื่อง — ระบบตรวจสอบชนิดไฟล์จากเนื้อไฟล์จริง',
+        icon: 'image-fill', tone: 'info',
+        body: '<div class="grid g-2">' +
+          '<div class="upload"><div class="upload-pv" id="pv-logo">' +
+          (s.logo_image ? '<img src="' + esc(s.logo_image) + '" alt="ตราโรงเรียน" referrerpolicy="no-referrer">' : '<i class="bi bi-shield"></i>') +
+          '</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">ตราโรงเรียน</div>' +
+          '<div class="hint">แสดงในเมนู หน้าเข้าสู่ระบบ และหัวกระดาษเอกสาร</div>' +
+          '<label class="btn btn-ghost btn-sm" style="margin-top:8px"><i class="bi bi-upload"></i> เลือกไฟล์' +
+          '<input type="file" id="set-logo" accept="image/png,image/jpeg,image/webp"></label></div></div>' +
+          '<div class="upload"><div class="upload-pv" id="pv-heroimg">' +
+          (s.hero_image ? '<img src="' + esc(s.hero_image) + '" alt="ภาพหน้าปก" referrerpolicy="no-referrer">' : '<i class="bi bi-card-image"></i>') +
+          '</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">ภาพหน้าปก</div>' +
+          '<div class="hint">ใช้เป็นพื้นหลังของหน้าเข้าสู่ระบบ (ถ้ามี)</div>' +
+          '<label class="btn btn-ghost btn-sm" style="margin-top:8px"><i class="bi bi-upload"></i> เลือกไฟล์' +
+          '<input type="file" id="set-hero" accept="image/png,image/jpeg,image/webp"></label></div></div>' +
+          '<div class="upload"><div class="upload-pv" id="pv-devlogo" data-fb="person-badge-fill">' +
+          (s.dev_logo ? '<img src="' + esc(s.dev_logo) + '" alt="โลโก้ผู้พัฒนา" referrerpolicy="no-referrer">' : '<i class="bi bi-person-badge-fill"></i>') +
+          '</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">โลโก้ผู้พัฒนา</div>' +
+          '<div class="hint">แสดงคู่กับชื่อผู้พัฒนาที่แถบท้ายทุกหน้า</div>' +
+          '<label class="btn btn-ghost btn-sm" style="margin-top:8px"><i class="bi bi-upload"></i> เลือกไฟล์' +
+          '<input type="file" id="set-devlogo" accept="image/png,image/jpeg,image/webp"></label></div></div>' +
+          '</div>' +
+          '<div class="form-grid" style="margin-top:14px">' +
+          fieldTxt('hero_overlay', 'ความทึบของชั้นบังภาพหน้าปก (0-95%)', s.hero_overlay, false, 'number') +
+          '</div>' +
+          '<div class="hint"><i class="bi bi-info-circle"></i> ' +
+          'ยิ่งค่าสูง ภาพยิ่งมืดลง ทำให้ตัวอักษรบนหน้าเข้าสู่ระบบอ่านง่ายขึ้น · ' +
+          'ถ้าไม่อัปโหลดภาพหน้าปก ระบบจะใช้พื้นหลังคลื่นไหวเคลื่อนไหวแทน</div>'
+      }) +
+      panel({
+        title: 'การเช็กชื่อและการแจ้งเตือน', sub: 'เกณฑ์ที่ระบบใช้ตัดสินว่านักเรียนคนใดควรได้รับการติดตาม',
+        icon: 'bell-fill', tone: 'warn',
+        body: '<div class="form-grid">' +
+          fieldTxt('school_start_time', 'เวลาเข้าเรียน', s.school_start_time, false, 'time') +
+          fieldTxt('late_time', 'เวลาที่ถือว่ามาสาย', s.late_time, false, 'time') +
+          fieldTxt('absent_alert_days', 'แจ้งเตือนเมื่อขาดเรียนเกิน (ครั้ง/30 วัน)', s.absent_alert_days, false, 'number') +
+          fieldTxt('late_alert_times', 'แจ้งเตือนเมื่อมาสายเกิน (ครั้ง/30 วัน)', s.late_alert_times, false, 'number') +
+          '<div class="field full"><label class="switch"><input type="checkbox" data-f="notify_enabled"' +
+          (String(s.notify_enabled) === 'true' ? ' checked' : '') + '><span class="track"></span>' +
+          '<span class="lb">เปิดระบบแจ้งเตือนภายในระบบ</span></label></div>' +
+          '<div class="field full"><label class="switch"><input type="checkbox" data-f="show_demo_users"' +
+          (String(s.show_demo_users) === 'true' ? ' checked' : '') + '><span class="track"></span>' +
+          '<span class="lb">แสดงบัญชีตัวอย่างในหน้าเข้าสู่ระบบ (ปิดก่อนใช้งานจริง)</span></label></div>' +
+          '</div>'
+      }) +
+      '</form>' +
+      '<div class="row is-end" style="margin-bottom:22px">' +
+      '<button class="btn btn-ghost" type="button" id="set-cache"><i class="bi bi-arrow-clockwise"></i> ล้างแคชระบบ</button>' +
+      '<button class="btn btn-ok" type="button" id="set-backup" data-state="idle">' +
+      buttonStates('สำรองข้อมูลทันที', 'cloud-arrow-down-fill') + '</button>' +
+      '<button class="btn btn-primary" type="button" id="set-save" data-state="idle">' +
+      buttonStates('บันทึกการตั้งค่า', 'check-lg') + '</button>' +
+      '</div>' +
+      panel({
+        title: 'สถานะฐานข้อมูล', sub: 'จำนวนแถวในแต่ละตาราง', icon: 'database-fill-gear', tone: 'mut',
+        body: '<div class="chips">' + Object.keys(counts).map(function (k) {
+          return '<span class="chip" style="cursor:default">' + esc(k) + ' <span class="n">' + fmt(counts[k]) + '</span></span>';
+        }).join('') + '</div>' +
+          '<div style="margin-top:14px"><a class="btn btn-ghost btn-sm" href="' + esc((st.sheet || {}).url || '#') +
+          '" target="_blank" rel="noopener"><i class="bi bi-table"></i> เปิดสเปรดชีตฐานข้อมูล</a></div>'
+      }) +
+      (Store.user && Store.user.role === 'admin' ? dangerZone() : '');
+
+    var lg = $('#set-logo');
+    if (lg) lg.addEventListener('change', function () { A.previewPhoto(lg, '#pv-logo'); });
+    var hr = $('#set-hero');
+    if (hr) hr.addEventListener('change', function () { A.previewPhoto(hr, '#pv-heroimg'); });
+    var dl = $('#set-devlogo');
+    if (dl) dl.addEventListener('change', function () { A.previewPhoto(dl, '#pv-devlogo'); });
+
+   var sv = $('#set-save');
+    if (sv) sv.addEventListener('click', function () {
+      var form = $('#set-form');
+      var data = readForm(form);
+      Object.keys(data).forEach(function (k) {
+        if (typeof data[k] === 'boolean') data[k] = data[k] ? 'true' : 'false';
+      });
+      
+      // 📌 ฟังก์ชันช่วยอัปโหลดไฟล์ตรงเข้า Supabase Storage จากฝั่งเบราว์เซอร์เพื่อหลบข้อจำกัด 413 ของ Vercel
+      A.spinShow('กำลังอัปโหลดรูปภาพและบันทึกข้อมูล...');
+      
+      async function uploadFileToSupabaseStorage(fileInput, folderName) {
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) return null;
+        var file = fileInput.files[0];
+        var fileExt = file.name.split('.').pop();
+        var fileName = folderName + '/' + Date.now() + '_' + Math.random().toString(36.substring(2, 7)) + '.' + fileExt;
+        
+        // เรียกใช้งาน Supabase Client ฝั่งเบราว์เซอร์ (สมมติว่ามีการประกาศตัวแปร supabase ไว้แล้ว หรือใช้ผ่าน A.supabase)
+        // หากโปรเจกต์ของคุณเชื่อมต่อ Supabase client ไว้ ให้ใช้คำสั่งอัปโหลดตรงนี้ครับ:
+        /*
+        var { data: uploadData, error } = await window._supabase.storage
+          .from('school-assets')
+          .upload(fileName, file, { cacheControl: '3600', upsert: true });
+        if (error) throw error;
+        var { data: publicUrlData } = window._supabase.storage
+          .from('school-assets')
+          .getPublicUrl(fileName);
+        return publicUrlData.publicUrl;
+        */
+        
+        // หากต้องการส่งผ่าน Base64 ขนาดเล็กผ่าน API แนะนำให้บีบอัดภาพก่อน หรือใช้ fileinput.dataset.url ที่แปลงเป็น Base64 ขนาดเล็ก
+        return fileInput.dataset.url || null;
+      }
+
+      // ตรวจสอบและอัปโหลดรูปภาพแต่ละตัว
+      Promise.all([
+        lg && lg.files && lg.files.length > 0 ? uploadFileToSupabaseStorage(lg, 'logo') : Promise.resolve(lg && lg.dataset.url ? lg.dataset.url : null),
+        hr && hr.files && hr.files.length > 0 ? uploadFileToSupabaseStorage(hr, 'hero') : Promise.resolve(hr && hr.dataset.url ? hr.dataset.url : null),
+        dl && dl.files && dl.files.length > 0 ? uploadFileToSupabaseStorage(dl, 'devlogo') : Promise.resolve(dl && dl.dataset.url ? dl.dataset.url : null)
+      ]).then(function(urls) {
+        if (urls[0]) data.logo_image = urls[0];
+        if (urls[1]) data.hero_image = urls[1];
+        if (urls[2]) data.dev_logo = urls[2];
+
+        return call('setting.save', data);
+      }).then(function (r) {
+        A.spinHide();
+        Store.settings = r.items || Store.settings;
+        toast('บันทึกการตั้งค่าเรียบร้อย', 'ok');
+        A.refreshShell();
+      }).catch(function (e) {
+        A.spinHide();
+        toast('เกิดข้อผิดพลาด: ' + (e.message || e), 'bad');
+      });
+    });
+    var bk = $('#set-backup');
+    if (bk) bk.addEventListener('click', function () {
+      runAction(bk, {}, function () {
+        return call('system.backup', {}).then(function (r) {
+          toast(r.message, 'ok', 'สำรองข้อมูลสำเร็จ');
+          modal({
+            title: 'สำรองข้อมูลเรียบร้อย', icon: 'cloud-check-fill', tone: 'ok',
+            body: '<div style="font-size:13.5px;line-height:1.8">ไฟล์สำเนา: <b>' + esc(r.name) + '</b><br>' +
+              'เก็บไว้ในโฟลเดอร์ <b>backup</b> ข้างสเปรดชีตฐานข้อมูล</div>' +
+              '<div style="margin-top:12px"><a class="btn btn-soft btn-sm" href="' + esc(r.url) + '" target="_blank" rel="noopener">' +
+              '<i class="bi bi-box-arrow-up-right"></i> เปิดไฟล์สำรอง</a></div>',
+            footer: '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>'
+          });
+        });
+      });
+    });
+    var cc = $('#set-cache');
+    if (cc) cc.addEventListener('click', function () {
+      call('system.cache', {}).then(function (r) {
+        A.bustCache();
+        toast(r.message, 'ok');
+      }).catch(function (e) { toast(e.message, 'bad'); });
+    });
+    wireDangerZone();
+  }
+
+  /* ── เขตอันตราย: เคลียร์ข้อมูลเพื่อเริ่มใหม่ ─────────────── */
+  function dangerZone() {
+    return '<div class="danger no-print">' +
+      '<div class="danger-t"><i class="bi bi-exclamation-octagon-fill"></i> เขตอันตราย</div>' +
+      '<div class="danger-d">เคลียร์ข้อมูลเพื่อเริ่มใช้งานจริง หรือขึ้นปีการศึกษาใหม่ — ' +
+      '<b>บัญชีผู้ใช้และการตั้งค่าระบบจะไม่ถูกลบ</b> · การลบนี้ย้อนกลับไม่ได้ ' +
+      'แนะนำให้กด "สำรองข้อมูลทันที" ก่อนทุกครั้ง</div>' +
+      '<button class="btn btn-danger" type="button" id="rs-open">' +
+      '<i class="bi bi-trash3-fill"></i> เคลียร์ข้อมูลเพื่อเริ่มใหม่</button>' +
+      '</div>';
+  }
+
+  function wireDangerZone() {
+    var open = $('#rs-open');
+    if (!open) return;
+    open.addEventListener('click', function () {
+      A.spinShow('กำลังตรวจสอบข้อมูลในระบบ', { stages: ['กำลังนับจำนวนแถวแต่ละตาราง…'] });
+      call('system.preview', {}).then(function (d) {
+        A.spinHide();
+        openResetModal(d);
+      }).catch(function (e) { A.spinHide(); toast(e.message, 'bad'); });
+    });
+  }
+
+  function openResetModal(d) {
+    var items = (d.items || []).map(function (it) {
+      var empty = it.rows === 0;
+      return '<label class="reset-i' + (empty ? ' is-empty' : '') + '">' +
+        '<input type="checkbox" data-rs="' + esc(it.key) + '"' + (empty ? ' disabled' : '') + '>' +
+        '<span class="nm">' + esc(it.label) + '</span>' +
+        '<span class="ct">' + fmt(it.rows) + ' แถว</span>' +
+        '</label>';
+    }).join('');
+    modal({
+      size: 'lg',
+      title: 'เคลียร์ข้อมูลเพื่อเริ่มใหม่',
+      icon: 'exclamation-octagon-fill', tone: 'bad',
+      body:
+        '<div class="errbox" style="margin-bottom:16px">' +
+        '<i class="bi bi-exclamation-triangle-fill ic"></i>' +
+        '<div><div class="t">การลบนี้ย้อนกลับไม่ได้</div>' +
+        '<div class="d">ข้อมูลที่เลือกจะถูกลบออกจากสเปรดชีตถาวร — บัญชีผู้ใช้และการตั้งค่าระบบยังคงอยู่</div>' +
+        '<div class="fix">แนะนำ: เปิดสเปรดชีต → ไฟล์ → ทำสำเนา เพื่อสำรองข้อมูลก่อน</div></div></div>' +
+        '<div class="sec"><div class="sec-t"><i class="bi bi-list-check"></i> เลือกข้อมูลที่ต้องการล้าง</div>' +
+        '<div class="reset-list">' + items + '</div>' +
+        '<div class="hint" style="margin-top:10px"><i class="bi bi-info-circle"></i> ' +
+        'เมื่อเลือก "ทะเบียนนักเรียน" ระบบจะล้างข้อมูลที่อ้างถึงนักเรียนทั้งหมดให้อัตโนมัติ ' +
+        '(ผู้ปกครอง การมาเรียน พฤติกรรม เยี่ยมบ้าน สุขภาพ เคสติดตาม การส่งงาน) เพื่อไม่ให้เหลือข้อมูลกำพร้า</div></div>' +
+        '<div class="field"><label>พิมพ์คำว่า "<b>' + esc(d.phrase) + '</b>" เพื่อยืนยัน<span class="req">*</span></label>' +
+        '<input class="inp" type="text" id="rs-confirm" placeholder="' + esc(d.phrase) + '" autocomplete="off"></div>',
+      footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+        '<button class="btn btn-danger" type="button" id="rs-go" data-state="idle" disabled>' +
+        buttonStates('ล้างข้อมูลที่เลือก', 'trash3-fill') + '</button>',
+      onOpen: function (host) {
+        var go = $('#rs-go', host), inp = $('#rs-confirm', host);
+        var check = function () {
+          var picked = $$('[data-rs]', host).filter(function (c) { return c.checked; }).length;
+          var ok = picked > 0 && inp && inp.value.trim() === d.phrase;
+          if (go) go.disabled = !ok;
+        };
+        $$('[data-rs]', host).forEach(function (c) { c.addEventListener('change', check); });
+        if (inp) inp.addEventListener('input', check);
+        if (go) go.addEventListener('click', function () {
+          var scopes = $$('[data-rs]', host).filter(function (c) { return c.checked; })
+            .map(function (c) { return c.getAttribute('data-rs'); });
+          runAction(go, {}, function () {
+            return call('system.reset', { confirm: inp.value.trim(), scopes: scopes }).then(function (r) {
+              modalClose();
+              A.bustCache();
+              var lines = Object.keys(r.cleared || {}).map(function (k) {
+                return '<div>' + esc(r.cleared[k].label) + ': <b>' + fmt(r.cleared[k].rows) + '</b> แถว</div>';
+              }).join('');
+              modal({
+                title: 'ล้างข้อมูลเรียบร้อย', icon: 'check-circle-fill', tone: 'ok',
+                body: '<div style="font-size:13.5px;line-height:1.9">' + lines +
+                  '<div style="margin-top:10px">รวมทั้งหมด <b>' + fmt(r.total) + '</b> แถว</div></div>',
+                footer: '<button class="btn btn-primary" type="button" id="rs-done">เรียบร้อย</button>',
+                onOpen: function (h2) {
+                  var b = $('#rs-done', h2);
+                  if (b) b.addEventListener('click', function () { modalClose(); A.reloadAll(); });
+                }
+              });
+            });
+          });
+        });
+      }
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ผู้ใช้งาน
+     ═══════════════════════════════════════════════════════════ */
+  var USR = { q: '', role: '' };
+
+  Routes['#/users'] = {
+    cap: 'user.manage',
+    render: function (page) { loading(page, 'hero'); loadUsers(page); }
+  };
+
+  function loadUsers(page) {
+    Promise.all([call('user.list', USR), call('class.list', {})]).then(function (res) {
+      var p = guard('#/users');
+      if (!p) return;
+      paintUsers(p, res[0], res[1].items || []);
+    }).catch(function (e) { fail('#/users', e); });
+  }
+
+  function paintUsers(page, d, classes) {
+    var byRole = {};
+    (d.items || []).forEach(function (u) { byRole[u.role] = (byRole[u.role] || 0) + 1; });
+    var active = (d.items || []).filter(function (u) { return u.is_active; }).length;
+    var cards = (d.items || []).map(function (u) {
+      return '<div class="item-card' + (u.is_active ? '' : ' is-alert') + '" data-usr="' + esc(u.id) + '">' +
+        '<div class="ic-head">' + avatar({ url: u.photo_url, name: u.full_name, size: 'lg', square: true }) +
+        '<div class="who"><div class="ic-name">' + esc(u.full_name) + '</div>' +
+        '<div class="ic-sub">' + esc(u.username) + (u.position ? ' · ' + esc(u.position) : '') + '</div>' +
+        '<div style="margin-top:5px">' + roleChip(u.role, u.role_label) +
+        (u.is_active ? '' : ' ' + badge('ระงับการใช้งาน', 'bad')) + '</div></div></div>' +
+        '<div class="ic-meta">' +
+        (u.email ? '<span><i class="bi bi-envelope"></i> ' + esc(u.email) + '</span>' : '') +
+        (u.phone ? '<span><i class="bi bi-telephone"></i> ' + esc(u.phone) + '</span>' : '') +
+        (u.homeroom_names.length ? '<span><i class="bi bi-door-open"></i> ' + esc(u.homeroom_names.join(', ')) + '</span>' : '') +
+        '<span><i class="bi bi-clock-history"></i> ' + esc(u.last_login_at ? TH.relative(u.last_login_at) : 'ยังไม่เคยเข้าใช้') + '</span>' +
+        '</div>' +
+        (u.extra_caps.length || u.deny_caps.length ? '<div style="margin-top:8px">' +
+          (u.extra_caps.length ? badge('สิทธิ์เพิ่ม ' + u.extra_caps.length, 'ok') : '') + ' ' +
+          (u.deny_caps.length ? badge('สิทธิ์ที่ปิด ' + u.deny_caps.length, 'bad') : '') + '</div>' : '') +
+        '<div class="ic-foot"><span class="sp"></span>' +
+        '<button class="btn btn-ghost btn-sm" type="button" data-usr-pw="' + esc(u.id) + '" title="ตั้งรหัสผ่านใหม่">' +
+        '<i class="bi bi-key-fill"></i></button>' +
+        (hasCap('rbac.manage') ? '<button class="btn btn-ghost btn-sm" type="button" data-usr-cap="' + esc(u.id) + '" title="สิทธิ์รายบุคคล">' +
+          '<i class="bi bi-shield-lock-fill"></i></button>' : '') +
+        '<button class="btn btn-soft btn-sm" type="button" data-usr-edit="' + esc(u.id) + '">' +
+        '<i class="bi bi-pencil-fill"></i> แก้ไข</button>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      hero({
+        pill: 'ตั้งค่าระบบ', pillIcon: 'person-badge-fill', title: 'จัดการผู้ใช้งาน',
+        sub: 'สร้างบัญชี กำหนดบทบาท และผูกห้องเรียนที่รับผิดชอบให้ครูประจำชั้น',
+        icon: 'person-badge-fill',
+        actions: '<button class="btn btn-glass" type="button" id="usr-add"><i class="bi bi-person-plus-fill"></i> เพิ่มผู้ใช้งาน</button>',
+        kpis: [
+          { icon: 'people-fill', label: 'บัญชีทั้งหมด', value: fmt((d.items || []).length), unit: 'บัญชี' },
+          { icon: 'check-circle-fill', label: 'ใช้งานอยู่', value: fmt(active), unit: 'บัญชี' },
+          { icon: 'shield-lock-fill', label: 'ผู้ดูแลระบบ', value: fmt(byRole.admin || 0), unit: 'คน' },
+          { icon: 'person-video3', label: 'ครูประจำชั้น', value: fmt(byRole.homeroom || 0), unit: 'คน' },
+          { icon: 'easel2-fill', label: 'ครูผู้สอน', value: fmt(byRole.teacher || 0), unit: 'คน' }
+        ]
+      }) +
+      '<div class="toolbar">' +
+      '<div class="tb-search"><i class="bi bi-search"></i>' +
+      '<input class="inp" type="search" id="usr-q" placeholder="ค้นหาชื่อ ชื่อผู้ใช้ หรืออีเมล…" value="' + esc(USR.q) + '"></div>' +
+      '<div class="chips">' + A.chip('rl', '', 'ทุกบทบาท', USR.role === '') +
+      (d.roles || []).map(function (r) { return A.chip('rl', r.code, r.label, USR.role === r.code); }).join('') + '</div>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="usr-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+      '</div>' +
+      ((d.items || []).length ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({ body: emptyBox({ icon: 'person-x', title: 'ไม่พบผู้ใช้งาน', text: 'ลองล้างตัวกรอง หรือเพิ่มบัญชีใหม่' }) }));
+
+    var q = $('#usr-q');
+    if (q) q.addEventListener('input', A.debounce(function () { USR.q = q.value; loadUsers($('#page')); }, 300));
+    $$('[data-chip="rl"]').forEach(function (b) {
+      b.addEventListener('click', function () { USR.role = b.getAttribute('data-val'); loadUsers($('#page')); });
+    });
+    var cr = $('#usr-clear');
+    if (cr) cr.addEventListener('click', function () { USR.q = ''; USR.role = ''; loadUsers($('#page')); });
+    var add = $('#usr-add');
+    if (add) add.addEventListener('click', function () { openUserForm(null, d.roles || [], classes); });
+    $$('[data-usr-edit]').forEach(function (b) {
+      b.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = b.getAttribute('data-usr-edit');
+        openUserForm((d.items || []).filter(function (x) { return x.id === id; })[0], d.roles || [], classes);
+      });
+    });
+    $$('[data-usr-pw]').forEach(function (b) {
+      b.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = b.getAttribute('data-usr-pw');
+        openResetPw((d.items || []).filter(function (x) { return x.id === id; })[0]);
+      });
+    });
+    $$('[data-usr-cap]').forEach(function (b) {
+      b.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var id = b.getAttribute('data-usr-cap');
+        openUserCaps((d.items || []).filter(function (x) { return x.id === id; })[0]);
+      });
+    });
+  }
+
+  function openUserForm(u, roles, classes) {
+    var cur = u || { role: 'homeroom', is_active: true, homeroom_ids: [] };
+    var roleOpts = roles.map(function (r) {
+      return '<option value="' + esc(r.code) + '"' + (cur.role === r.code ? ' selected' : '') + '>' + esc(r.label) + '</option>';
+    }).join('');
+    var classChecks = (classes || []).map(function (c) {
+      var on = (cur.homeroom_ids || []).indexOf(c.id) >= 0;
+      return '<label class="pick' + (on ? ' is-on' : '') + '"><input type="checkbox" data-hr="' + esc(c.id) + '"' +
+        (on ? ' checked' : '') + '><span class="pk"><i class="bi bi-door-open-fill"></i> ' + esc(c.name) + '</span></label>';
+    }).join('');
+    modal({
+      size: 'lg',
+      title: cur.id ? 'แก้ไขผู้ใช้งาน' : 'เพิ่มผู้ใช้งานใหม่',
+      icon: 'person-plus-fill', tone: 'brand',
+      body: '<form id="usr-form"><div class="form-grid">' +
+        fieldTxt('username', 'ชื่อผู้ใช้ (a-z 0-9 . _ -)', cur.username, true, 'text') +
+        fieldTxt('full_name', 'ชื่อ-นามสกุล', cur.full_name, true, 'text') +
+        '<div class="field"><label>บทบาท<span class="req">*</span></label>' +
+        '<select class="sel" data-f="role" required>' + roleOpts + '</select></div>' +
+        fieldTxt('position', 'ตำแหน่ง', cur.position, false, 'text') +
+        fieldTxt('email', 'อีเมล', cur.email, false, 'email') +
+        fieldTxt('phone', 'โทรศัพท์', cur.phone, false, 'tel') +
+        '<div class="field full"><label>' + (cur.id ? 'รหัสผ่านใหม่ (เว้นว่าง = ไม่เปลี่ยน)' : 'รหัสผ่าน') +
+        (cur.id ? '' : '<span class="req">*</span>') + '</label>' +
+        '<input class="inp" type="password" data-f="password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัวอักษร"></div>' +
+        '<div class="field full"><label>ห้องเรียนที่รับผิดชอบ (ครูประจำชั้น)</label>' +
+        '<div class="pick-grid">' + (classChecks || '<span class="hint">ยังไม่มีห้องเรียนในระบบ</span>') + '</div>' +
+        '<div class="hint">ครูประจำชั้นจะเห็นเฉพาะนักเรียนในห้องที่เลือกไว้เท่านั้น</div></div>' +
+        '<div class="field full"><label class="switch"><input type="checkbox" data-f="is_active"' +
+        (cur.is_active !== false ? ' checked' : '') + '><span class="track"></span>' +
+        '<span class="lb">เปิดใช้งานบัญชีนี้</span></label></div>' +
+        '</div>' +
+        '<input type="hidden" data-f="id" value="' + esc(cur.id || '') + '">' +
+        '<input type="hidden" data-f="rev" value="' + esc(cur.rev || '') + '"></form>',
+      footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+        (cur.id && cur.id !== (Store.user || {}).id ? '<button class="btn btn-danger btn-icon" type="button" id="usr-del">' +
+          '<i class="bi bi-trash-fill"></i></button>' : '') +
+        '<button class="btn btn-primary" type="button" id="usr-save" data-state="idle">' + buttonStates('บันทึก', 'check-lg') + '</button>',
+      onOpen: function (host) {
+        $$('.pick input[type=checkbox]', host).forEach(function (c) {
+          c.addEventListener('change', function () { c.closest('.pick').classList.toggle('is-on', c.checked); });
+        });
+        var sv = $('#usr-save', host);
+        if (sv) sv.addEventListener('click', function () {
+          var data = readForm(host);
+          data.is_active = data.is_active ? 'true' : 'false';
+          data.homeroom_ids = $$('[data-hr]', host).filter(function (c) { return c.checked; })
+            .map(function (c) { return c.getAttribute('data-hr'); });
+          if (!String(data.username || '').trim()) { toast('กรุณากรอกชื่อผู้ใช้', 'warn'); return; }
+          if (!String(data.full_name || '').trim()) { toast('กรุณากรอกชื่อ-นามสกุล', 'warn'); return; }
+          if (!cur.id && String(data.password || '').length < 6) { toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 'warn'); return; }
+          runAction(sv, {}, function () {
+            return call('user.save', data).then(function () {
+              modalClose(); toast('บันทึกผู้ใช้งานเรียบร้อย', 'ok'); loadUsers($('#page'));
+            });
+          });
+        });
+        var dl = $('#usr-del', host);
+        if (dl) dl.addEventListener('click', function () {
+          confirmBox({
+            title: 'ลบบัญชีผู้ใช้',
+            html: '<p>ต้องการลบบัญชี <b>' + esc(cur.full_name) + '</b> (' + esc(cur.username) + ') ใช่หรือไม่</p>' +
+              '<p>เซสชันที่กำลังใช้งานอยู่จะถูกยกเลิกทันที</p>',
+            okText: 'ลบบัญชี'
+          }).then(function (yes) {
+            if (!yes) return;
+            call('user.delete', { id: cur.id }).then(function () {
+              modalClose(); toast('ลบบัญชีเรียบร้อย', 'ok'); loadUsers($('#page'));
+            }).catch(function (e) { toast(e.message, 'bad'); });
+          });
+        });
+      }
+    });
+  }
+
+  function openResetPw(u) {
+    if (!u) return;
+    modal({
+      title: 'ตั้งรหัสผ่านใหม่',
+      icon: 'key-fill', tone: 'warn',
+      body: '<div style="font-size:13.5px;line-height:1.8;margin-bottom:14px">' +
+        'ตั้งรหัสผ่านใหม่ให้ <b>' + esc(u.full_name) + '</b> (' + esc(u.username) + ')<br>' +
+        '<span style="color:var(--ink-3)">เซสชันเดิมทั้งหมดจะถูกยกเลิก และผู้ใช้ต้องเข้าสู่ระบบใหม่</span></div>' +
+        '<form id="pw-form"><div class="field"><label>รหัสผ่านใหม่<span class="req">*</span></label>' +
+        '<input class="inp" type="text" data-f="password" placeholder="อย่างน้อย 6 ตัวอักษร" autocomplete="off"></div>' +
+        '<input type="hidden" data-f="id" value="' + esc(u.id) + '"></form>',
+      footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+        '<button class="btn btn-primary" type="button" id="pw-save" data-state="idle">' + buttonStates('ตั้งรหัสผ่านใหม่', 'key-fill') + '</button>',
+      onOpen: function (host) {
+        var sv = $('#pw-save', host);
+        if (!sv) return;
+        sv.addEventListener('click', function () {
+          var data = readForm(host);
+          if (String(data.password || '').length < 6) { toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 'warn'); return; }
+          runAction(sv, {}, function () {
+            return call('user.reset', data).then(function (r) {
+              modalClose(); toast(r.message, 'ok');
+            });
+          });
+        });
+      }
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     สิทธิ์การใช้งาน
+     ═══════════════════════════════════════════════════════════ */
+  Routes['#/rbac'] = {
+    cap: 'rbac.manage',
+    render: function (page) {
+      loading(page, 'list');
+      call('rbac.matrix', {}).then(function (d) {
+        var p = guard('#/rbac');
+        if (!p) return;
+        var head = '<th style="min-width:220px">สิทธิ์ (capability)</th>' +
+          (d.roles || []).map(function (r) { return '<th class="ctr">' + esc(r.label) + '</th>'; }).join('');
+        var rows = (d.caps || []).map(function (c, i) {
+          return '<tr><td><code style="font-size:12px">' + esc(c) + '</code><br>' +
+            '<small style="color:var(--ink-3)">' + esc(capLabel(c)) + '</small></td>' +
+            (d.roles || []).map(function (r) {
+              return '<td class="ctr">' + (r.grid[i]
+                ? '<i class="bi bi-check-circle-fill" style="color:var(--ok);font-size:16px"></i>'
+                : '<i class="bi bi-dash" style="color:var(--ink-3)"></i>') + '</td>';
+            }).join('') + '</tr>';
+        }).join('');
+        p.innerHTML =
+          hero({
+            pill: 'ตั้งค่าระบบ', pillIcon: 'shield-lock-fill', title: 'สิทธิ์การใช้งานตามบทบาท',
+            sub: 'ตารางนี้สร้างจากการเรียกฟังก์ชันตรวจสิทธิ์จริง จึงเห็นสิทธิ์ที่สืบทอดมาโดยอัตโนมัติด้วย',
+            icon: 'shield-lock-fill',
+            kpis: [
+              { icon: 'key-fill', label: 'สิทธิ์ทั้งหมด', value: fmt((d.caps || []).length), unit: 'รายการ' },
+              { icon: 'people-fill', label: 'บทบาท', value: fmt((d.roles || []).length), unit: 'บทบาท' }
+            ]
+          }) +
+          panel({
+            title: 'ตารางสิทธิ์', sub: 'แก้สิทธิ์รายบุคคลได้ที่หน้าผู้ใช้งาน (ไอคอนรูปโล่)',
+            icon: 'table', tone: 'brand', flush: true,
+            body: '<div class="tbl-wrap"><table class="tbl tbl-mini"><thead><tr>' + head + '</tr></thead>' +
+              '<tbody>' + rows + '</tbody></table></div>',
+            foot: '<div style="font-size:12px;color:var(--ink-2);line-height:1.8">' +
+              '<b>สิทธิ์ที่ไม่สืบทอดโดยอัตโนมัติ:</b> สิทธิ์ที่ลงท้ายด้วย <code>_own</code> (จำกัดขอบเขต) · ' +
+              'สิทธิ์อนุมัติ/ลงนาม · และสิทธิ์ตระกูล <code>health.*</code> (ข้อมูลสุขภาพเป็นข้อมูลอ่อนไหว ต้องมอบให้ตรง ๆ เท่านั้น)</div>'
+          });
+      }).catch(function (e) { fail('#/rbac', e); });
+    }
+  };
+
+  var CAP_LABEL = {
+    'dashboard.view': 'ดูแดชบอร์ด', 'search.global': 'ค้นหาทั้งระบบ',
+    'student.view_all': 'ดูนักเรียนทั้งโรงเรียน', 'student.view_own': 'ดูนักเรียนห้องที่รับผิดชอบ',
+    'student.view_self': 'ดูเฉพาะบุตรหลานของตน', 'student.manage': 'จัดการทะเบียนนักเรียน',
+    'student.import': 'นำเข้าข้อมูลนักเรียน', 'student.export': 'ส่งออกข้อมูลนักเรียน',
+    'student.sensitive': 'เห็นข้อมูลส่วนบุคคล (เลขบัตร ที่อยู่ เบอร์โทร)',
+    'attendance.view_all': 'ดูการมาเรียนทั้งโรงเรียน', 'attendance.view_own': 'ดูการมาเรียนห้องที่รับผิดชอบ',
+    'attendance.view_self': 'ดูการมาเรียนของบุตรหลาน', 'attendance.manage': 'เช็กชื่อและแก้ไขการมาเรียน',
+    'daily.view_all': 'ดูบันทึกประจำวันทั้งหมด', 'daily.view_own': 'ดูบันทึกประจำวันของห้องตน',
+    'daily.manage': 'บันทึกประจำวัน',
+    'activity.view_all': 'ดูกิจกรรมทั้งหมด', 'activity.view_own': 'ดูกิจกรรมของห้องตน',
+    'activity.view_self': 'ดูกิจกรรมของบุตรหลาน', 'activity.manage': 'จัดการกิจกรรม',
+    'behavior.view_all': 'ดูพฤติกรรมทั้งโรงเรียน', 'behavior.view_own': 'ดูพฤติกรรมห้องที่รับผิดชอบ',
+    'behavior.view_self': 'ดูพฤติกรรมของบุตรหลาน', 'behavior.manage': 'บันทึกพฤติกรรม',
+    'contact.view_all': 'ดูการติดต่อผู้ปกครองทั้งหมด', 'contact.view_own': 'ดูการติดต่อของห้องตน',
+    'contact.manage': 'บันทึกการติดต่อผู้ปกครอง',
+    'visit.view_all': 'ดูการเยี่ยมบ้านทั้งหมด', 'visit.view_own': 'ดูการเยี่ยมบ้านของห้องตน',
+    'visit.manage': 'บันทึกการเยี่ยมบ้าน',
+    'health.view_all': 'ดูข้อมูลสุขภาพทั้งโรงเรียน', 'health.view_own': 'ดูข้อมูลสุขภาพห้องที่รับผิดชอบ',
+    'health.manage': 'บันทึกข้อมูลสุขภาพและห้องพยาบาล',
+    'case.view_all': 'ดูเคสติดตามทั้งหมด', 'case.view_own': 'ดูเคสของห้องที่รับผิดชอบ',
+    'case.manage': 'เปิด/ติดตาม/ปิดเคส',
+    'assign.view_all': 'ดูงานที่มอบหมายทั้งหมด', 'assign.view_own': 'ดูงานของห้องตน',
+    'assign.manage': 'มอบหมายงานและบันทึกการส่ง',
+    'doc.view_all': 'ดูเอกสารทั้งหมด', 'doc.view_own': 'ดูเอกสารของห้องตน', 'doc.manage': 'อัปโหลด/ลบเอกสาร',
+    'calendar.view_all': 'ดูปฏิทินทั้งโรงเรียน', 'calendar.view_own': 'ดูปฏิทินของห้องตน',
+    'calendar.view_self': 'ดูปฏิทินที่เกี่ยวกับบุตรหลาน', 'calendar.manage': 'จัดการงานในปฏิทิน',
+    'report.view_all': 'ดูรายงานทั้งโรงเรียน', 'report.view_own': 'ดูรายงานห้องที่รับผิดชอบ',
+    'notify.view': 'รับการแจ้งเตือน',
+    'user.manage': 'จัดการบัญชีผู้ใช้', 'rbac.manage': 'กำหนดสิทธิ์', 'master.manage': 'จัดการข้อมูลหลัก',
+    'settings.manage': 'ตั้งค่าระบบ', 'audit.view': 'ดูประวัติการใช้งาน',
+    'system.reset': 'เคลียร์ข้อมูลระบบ', 'system.backup': 'สำรองข้อมูล'
+  };
+
+  function capLabel(c) { return CAP_LABEL[c] || ''; }
+
+  function openUserCaps(u) {
+    if (!u) return;
+    call('rbac.matrix', {}).then(function (d) {
+      var extra = u.extra_caps || [], deny = u.deny_caps || [];
+      var rows = (d.caps || []).map(function (c) {
+        var base = false;
+        (d.roles || []).forEach(function (r, ri) {
+          if (r.code === u.role) base = r.grid[(d.caps || []).indexOf(c)];
+        });
+        return '<tr><td><code style="font-size:12px">' + esc(c) + '</code><br>' +
+          '<small style="color:var(--ink-3)">' + esc(capLabel(c)) + '</small></td>' +
+          '<td class="ctr">' + (base ? '<i class="bi bi-check-circle-fill" style="color:var(--ok)"></i>'
+            : '<i class="bi bi-dash" style="color:var(--ink-3)"></i>') + '</td>' +
+          '<td class="ctr"><label class="switch"><input type="checkbox" data-extra="' + esc(c) + '"' +
+          (extra.indexOf(c) >= 0 ? ' checked' : '') + '><span class="track"></span></label></td>' +
+          '<td class="ctr"><label class="switch"><input type="checkbox" data-deny="' + esc(c) + '"' +
+          (deny.indexOf(c) >= 0 ? ' checked' : '') + '><span class="track"></span></label></td>' +
+          '</tr>';
+      }).join('');
+      modal({
+        size: 'xl',
+        title: 'สิทธิ์รายบุคคล · ' + u.full_name,
+        icon: 'shield-lock-fill', tone: 'acc',
+        body: '<div class="hint" style="margin-bottom:12px"><i class="bi bi-info-circle"></i> ' +
+          '<b>สิทธิ์เพิ่ม</b> = ให้สิทธิ์นี้เป็นกรณีพิเศษนอกเหนือจากบทบาท · <b>ปิดสิทธิ์</b> = ยกเลิกสิทธิ์ที่ได้จากบทบาท<br>' +
+          'สิทธิ์ระดับผู้ดูแลระบบ (จัดการผู้ใช้ · กำหนดสิทธิ์ · ตั้งค่าระบบ · เคลียร์ข้อมูล) มอบรายบุคคลไม่ได้ ' +
+          'ระบบจะกรองออกทั้งตอนบันทึกและตอนอ่าน</div>' +
+          '<div class="tbl-wrap"><table class="tbl tbl-mini"><thead><tr>' +
+          '<th>สิทธิ์</th><th class="ctr">จากบทบาท</th><th class="ctr">สิทธิ์เพิ่ม</th><th class="ctr">ปิดสิทธิ์</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="cap-save" data-state="idle">' + buttonStates('บันทึกสิทธิ์', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var sv = $('#cap-save', host);
+          if (!sv) return;
+          sv.addEventListener('click', function () {
+            var ex = $$('[data-extra]', host).filter(function (c) { return c.checked; })
+              .map(function (c) { return c.getAttribute('data-extra'); });
+            var dn = $$('[data-deny]', host).filter(function (c) { return c.checked; })
+              .map(function (c) { return c.getAttribute('data-deny'); });
+            runAction(sv, {}, function () {
+              return call('rbac.save', { id: u.id, extra_caps: ex, deny_caps: dn }).then(function () {
+                modalClose();
+                toast('บันทึกสิทธิ์เรียบร้อย — ผู้ใช้ต้องเข้าสู่ระบบใหม่', 'ok');
+                loadUsers($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ข้อมูลตั้งต้น (Lookups)
+     ═══════════════════════════════════════════════════════════ */
+  var LKP = { group: '' };
+
+  Routes['#/lookups'] = {
+    cap: 'master.manage',
+    render: function (page) { loading(page, 'list'); loadLookups(page); }
+  };
+
+  function loadLookups(page) {
+    call('lookup.list', LKP).then(function (d) {
+      var p = guard('#/lookups');
+      if (!p) return;
+      var groups = d.groups || [];
+      var byGroup = {};
+      (d.items || []).forEach(function (it) {
+        if (!byGroup[it.group]) byGroup[it.group] = [];
+        byGroup[it.group].push(it);
+      });
+      var panels = groups.filter(function (g) { return !LKP.group || LKP.group === g.code; }).map(function (g) {
+        var items = byGroup[g.code] || [];
+        return panel({
+          title: g.label, sub: 'ใช้เป็นตัวเลือกในแบบฟอร์มที่เกี่ยวข้อง', icon: 'tag-fill', tone: 'brand',
+          tools: '<button class="btn btn-soft btn-sm" type="button" data-lkp-add="' + esc(g.code) + '">' +
+            '<i class="bi bi-plus-lg"></i> เพิ่มรายการ</button>',
+          body: items.length ? '<div class="chips">' + items.map(function (it) {
+            return '<span class="chip" data-lkp-edit="' + esc(it.id) + '">' + esc(it.label) +
+              ' <i class="bi bi-pencil" style="font-size:10px"></i></span>';
+          }).join('') + '</div>'
+            : emptyBox({ icon: 'tag', title: 'ยังไม่มีรายการในหมวดนี้', text: 'ระบบจะใช้ค่าเริ่มต้นที่กำหนดไว้ในโปรแกรมแทน' })
+        });
+      }).join('');
+
+      p.innerHTML =
+        hero({
+          pill: 'ตั้งค่าระบบ', pillIcon: 'tags-fill', title: 'ข้อมูลตั้งต้นของระบบ',
+          sub: 'ประเภทและหมวดหมู่ที่โรงเรียนกำหนดเองได้ — เพิ่มแล้วจะปรากฏเป็นตัวเลือกในแบบฟอร์มทันที',
+          icon: 'tags-fill',
+          kpis: [
+            { icon: 'tags-fill', label: 'รายการทั้งหมด', value: fmt((d.items || []).length), unit: 'รายการ' },
+            { icon: 'collection-fill', label: 'หมวดหมู่', value: fmt(groups.length), unit: 'หมวด' }
+          ]
+        }) +
+        '<div class="toolbar">' +
+        '<select class="sel tb-sel" id="lkp-group"><option value="">ทุกหมวด</option>' +
+        (groups).map(function (g) {
+          return '<option value="' + esc(g.code) + '"' + (LKP.group === g.code ? ' selected' : '') + '>' + esc(g.label) + '</option>';
+        }).join('') + '</select>' +
+        '</div>' +
+        panels;
+
+      var gs = $('#lkp-group');
+      if (gs) gs.addEventListener('change', function () { LKP.group = gs.value; loadLookups($('#page')); });
+      $$('[data-lkp-add]').forEach(function (b) {
+        b.addEventListener('click', function () { openLookupForm({ group: b.getAttribute('data-lkp-add') }, groups); });
+      });
+      $$('[data-lkp-edit]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var id = b.getAttribute('data-lkp-edit');
+          openLookupForm((d.items || []).filter(function (x) { return x.id === id; })[0], groups);
+        });
+      });
+    }).catch(function (e) { fail('#/lookups', e); });
+  }
+
+  function openLookupForm(it, groups) {
+    var cur = it || {};
+    modal({
+      title: cur.id ? 'แก้ไขรายการ' : 'เพิ่มรายการใหม่',
+      icon: 'tag-fill', tone: 'brand',
+      body: '<form id="lkp-form"><div class="form-grid">' +
+        '<div class="field"><label>หมวด<span class="req">*</span></label>' +
+        '<select class="sel" data-f="group" required>' +
+        (groups || []).map(function (g) {
+          return '<option value="' + esc(g.code) + '"' + (cur.group === g.code ? ' selected' : '') + '>' + esc(g.label) + '</option>';
+        }).join('') + '</select></div>' +
+        fieldTxt('label', 'ชื่อรายการ', cur.label, true, 'text') +
+        fieldTxt('sort', 'ลำดับการแสดง', cur.sort, false, 'number') +
+        '</div>' +
+        '<input type="hidden" data-f="id" value="' + esc(cur.id || '') + '"></form>',
+      footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+        (cur.id ? '<button class="btn btn-danger btn-icon" type="button" id="lkp-del"><i class="bi bi-trash-fill"></i></button>' : '') +
+        '<button class="btn btn-primary" type="button" id="lkp-save" data-state="idle">' + buttonStates('บันทึก', 'check-lg') + '</button>',
+      onOpen: function (host) {
+        var sv = $('#lkp-save', host);
+        if (sv) sv.addEventListener('click', function () {
+          var data = readForm(host);
+          if (!String(data.label || '').trim()) { toast('กรุณากรอกชื่อรายการ', 'warn'); return; }
+          runAction(sv, {}, function () {
+            return call('lookup.save', data).then(function () {
+              modalClose(); toast('บันทึกเรียบร้อย', 'ok'); loadLookups($('#page'));
+            });
+          });
+        });
+        var dl = $('#lkp-del', host);
+        if (dl) dl.addEventListener('click', function () {
+          confirmBox({ title: 'ลบรายการ', text: 'ต้องการลบรายการนี้ใช่หรือไม่', okText: 'ลบ' }).then(function (yes) {
+            if (!yes) return;
+            call('lookup.delete', { id: cur.id }).then(function () {
+              modalClose(); toast('ลบเรียบร้อย', 'ok'); loadLookups($('#page'));
+            }).catch(function (e) { toast(e.message, 'bad'); });
+          });
+        });
+      }
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ประวัติการใช้งาน
+     ═══════════════════════════════════════════════════════════ */
+  var AUD = { q: '', action: '', username: '', page: 1 };
+
+  Routes['#/audit'] = {
+    cap: 'audit.view',
+    render: function (page) { loading(page, 'hero'); loadAudit(page); }
+  };
+
+  function loadAudit(page) {
+    call('audit.list', AUD).then(function (d) {
+      var p = guard('#/audit');
+      if (!p) return;
+      var k = d.kpi || {};
+      var rows = (d.items || []).map(function (r) {
+        return '<tr>' +
+          '<td data-l="เวลา"><b>' + esc(TH.date(r.date)) + '</b><br>' +
+          '<small style="color:var(--ink-3)">' + esc(r.time) + ' น.</small></td>' +
+          '<td data-l="ผู้ใช้">' + esc(r.username) + '</td>' +
+          '<td data-l="การกระทำ">' + badge(r.action, r.tone) + '</td>' +
+          '<td data-l="รายการ">' + esc(r.entity) + (r.entity_id ? ' <small style="color:var(--ink-3)">' + esc(r.entity_id) + '</small>' : '') + '</td>' +
+          '<td data-l="รายละเอียด"><small>' + esc((r.detail || '').slice(0, 160)) + '</small></td>' +
+          '</tr>';
+      }).join('');
+      p.innerHTML =
+        hero({
+          pill: 'ตั้งค่าระบบ', pillIcon: 'clock-history', title: 'ประวัติการใช้งานระบบ',
+          sub: 'บันทึกทุกการเข้าสู่ระบบ เพิ่ม แก้ไข ลบ ส่งออก และเปลี่ยนสิทธิ์ — ตรวจสอบย้อนหลังได้',
+          icon: 'clock-history',
+          kpis: [
+            { icon: 'journals', label: 'บันทึกทั้งหมด', value: fmt(k.total), unit: 'รายการ' },
+            { icon: 'calendar-day-fill', label: 'วันนี้', value: fmt(k.today), unit: 'รายการ' },
+            { icon: 'box-arrow-in-right', label: 'การเข้าสู่ระบบ', value: fmt(k.login), unit: 'ครั้ง' },
+            { icon: 'pencil-square', label: 'การแก้ไขข้อมูล', value: fmt(k.mutation), unit: 'ครั้ง' }
+          ]
+        }) +
+        '<div class="toolbar">' +
+        '<div class="tb-search"><i class="bi bi-search"></i>' +
+        '<input class="inp" type="search" id="aud-q" placeholder="ค้นหาผู้ใช้ การกระทำ หรือรายละเอียด…" value="' + esc(AUD.q) + '"></div>' +
+        '<select class="sel tb-sel" id="aud-act"><option value="">ทุกการกระทำ</option>' +
+        (d.actions || []).map(function (a) {
+          return '<option value="' + esc(a.code) + '"' + (AUD.action === a.code ? ' selected' : '') + '>' +
+            esc(a.code) + ' (' + a.count + ')</option>';
+        }).join('') + '</select>' +
+        '<select class="sel tb-sel" id="aud-usr"><option value="">ทุกผู้ใช้</option>' +
+        (d.users || []).map(function (u) {
+          return '<option value="' + esc(u.code) + '"' + (AUD.username === u.code ? ' selected' : '') + '>' +
+            esc(u.code) + ' (' + u.count + ')</option>';
+        }).join('') + '</select>' +
+        '<button class="btn btn-ghost btn-sm" type="button" id="aud-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+        '</div>' +
+        (d.total ? panel({
+          flush: true,
+          body: '<div class="tbl-wrap"><table class="tbl tbl-resp tbl-mini"><thead><tr>' +
+            '<th>เวลา</th><th>ผู้ใช้</th><th>การกระทำ</th><th>รายการ</th><th>รายละเอียด</th>' +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+        }) : panel({ body: emptyBox({ icon: 'clock', title: 'ไม่พบประวัติตามเงื่อนไข', text: 'ลองล้างตัวกรองแล้วค้นหาใหม่' }) })) +
+        pager({ page: d.page, pages: d.pages, total: d.total });
+
+      var q = $('#aud-q');
+      if (q) q.addEventListener('input', A.debounce(function () { AUD.q = q.value; AUD.page = 1; loadAudit($('#page')); }, 300));
+      var ac = $('#aud-act');
+      if (ac) ac.addEventListener('change', function () { AUD.action = ac.value; AUD.page = 1; loadAudit($('#page')); });
+      var us = $('#aud-usr');
+      if (us) us.addEventListener('change', function () { AUD.username = us.value; AUD.page = 1; loadAudit($('#page')); });
+      var cr = $('#aud-clear');
+      if (cr) cr.addEventListener('click', function () { AUD.q = ''; AUD.action = ''; AUD.username = ''; AUD.page = 1; loadAudit($('#page')); });
+      $$('.pager button').forEach(function (b) {
+        b.addEventListener('click', function () { AUD.page = num(b.getAttribute('data-page'), 1); loadAudit($('#page')); });
+      });
+    }).catch(function (e) { fail('#/audit', e); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ข้อมูลส่วนตัว
+     ═══════════════════════════════════════════════════════════ */
+  Routes['#/profile'] = {
+    cap: 'dashboard.view',
+    render: function (page) {
+      var u = Store.user || {};
+      page.innerHTML =
+        hero({
+          pill: u.role_label || '', pillIcon: 'person-badge-fill', title: 'ข้อมูลส่วนตัว',
+          sub: 'แก้ไขข้อมูลของคุณและเปลี่ยนรหัสผ่านได้ที่นี่', icon: 'person-circle',
+          kpis: [
+            { icon: 'person-fill', label: 'ชื่อผู้ใช้', value: u.username || '—' },
+            { icon: 'shield-fill', label: 'บทบาท', value: u.role_label || '—' },
+            { icon: 'door-open-fill', label: 'ห้องที่รับผิดชอบ', value: fmt((u.homeroom_ids || []).length), unit: 'ห้อง' },
+            { icon: 'key-fill', label: 'สิทธิ์ที่ได้รับ', value: fmt((u.caps || []).length), unit: 'รายการ' }
+          ]
+        }) +
+        '<div class="grid g-2">' +
+        panel({
+          title: 'แก้ไขข้อมูลส่วนตัว', icon: 'person-gear', tone: 'brand',
+          body: '<form id="pf-form">' +
+            '<div class="upload" style="margin-bottom:16px">' +
+            '<div class="upload-pv" id="pv-me">' +
+            (u.photo_url ? '<img src="' + esc(u.photo_url) + '" alt="รูปโปรไฟล์" referrerpolicy="no-referrer">'
+              : '<i class="bi bi-person-fill"></i>') + '</div>' +
+            '<div style="flex:1"><div style="font-weight:600;font-size:13.5px">รูปโปรไฟล์</div>' +
+            '<div class="hint">JPG · PNG · WEBP ไม่เกิน 8 MB</div>' +
+            '<label class="btn btn-ghost btn-sm" style="margin-top:8px"><i class="bi bi-upload"></i> เลือกรูป' +
+            '<input type="file" id="me-photo" accept="image/png,image/jpeg,image/webp"></label></div>' +
+            '</div>' +
+            '<div class="form-grid">' +
+            fieldTxt('full_name', 'ชื่อ-นามสกุล', u.full_name, true, 'text') +
+            fieldTxt('position', 'ตำแหน่ง', u.position, false, 'text') +
+            fieldTxt('email', 'อีเมล', u.email, false, 'email') +
+            fieldTxt('phone', 'โทรศัพท์', u.phone, false, 'tel') +
+            '</div></form>',
+          foot: '<div class="row is-end"><button class="btn btn-primary" type="button" id="me-save" data-state="idle">' +
+            buttonStates('บันทึกข้อมูล', 'check-lg') + '</button></div>'
+        }) +
+        panel({
+          title: 'เปลี่ยนรหัสผ่าน', sub: 'หลังเปลี่ยนรหัสผ่านระบบจะให้เข้าสู่ระบบใหม่', icon: 'key-fill', tone: 'warn',
+          body: '<form id="pw2-form"><div class="field"><label>รหัสผ่านเดิม<span class="req">*</span></label>' +
+            '<input class="inp" type="password" data-f="old_password" autocomplete="current-password"></div>' +
+            '<div class="field"><label>รหัสผ่านใหม่<span class="req">*</span></label>' +
+            '<input class="inp" type="password" data-f="new_password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัวอักษร"></div>' +
+            '<div class="field"><label>ยืนยันรหัสผ่านใหม่<span class="req">*</span></label>' +
+            '<input class="inp" type="password" id="pw2-confirm" autocomplete="new-password"></div></form>',
+          foot: '<div class="row is-end"><button class="btn btn-ok" type="button" id="pw2-save" data-state="idle">' +
+            buttonStates('เปลี่ยนรหัสผ่าน', 'key-fill') + '</button></div>'
+        }) +
+        '</div>' +
+        panel({
+          title: 'สิทธิ์การใช้งานของคุณ', sub: 'รายการสิทธิ์ที่บทบาทของคุณได้รับ', icon: 'shield-check', tone: 'acc',
+          body: '<div class="chips">' + (u.caps || []).map(function (c) {
+            return '<span class="chip" style="cursor:default"><i class="bi bi-check-lg"></i> ' +
+              esc(capLabel(c) || c) + '</span>';
+          }).join('') + '</div>'
+        });
+
+      var ph = $('#me-photo');
+      if (ph) ph.addEventListener('change', function () { A.previewPhoto(ph, '#pv-me'); });
+      var sv = $('#me-save');
+      if (sv) sv.addEventListener('click', function () {
+        var data = readForm($('#pf-form'));
+        if (!String(data.full_name || '').trim()) { toast('กรุณากรอกชื่อ-นามสกุล', 'warn'); return; }
+        if (ph && ph.dataset.url) data.photo_data = ph.dataset.url;
+        runAction(sv, {}, function () {
+          return call('auth.update_profile', data).then(function (r) {
+            Store.user = r.user ? Object.assign({}, Store.user, {
+              full_name: r.user.full_name, email: r.user.email, phone: r.user.phone,
+              position: r.user.position, photo_url: r.user.photo_url
+            }) : Store.user;
+            toast('บันทึกข้อมูลส่วนตัวเรียบร้อย', 'ok');
+            A.refreshShell();
+          });
+        });
+      });
+      var pw = $('#pw2-save');
+      if (pw) pw.addEventListener('click', function () {
+        var data = readForm($('#pw2-form'));
+        var cf = $('#pw2-confirm');
+        if (String(data.new_password || '').length < 6) { toast('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร', 'warn'); return; }
+        if (!cf || cf.value !== data.new_password) { toast('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน', 'warn'); return; }
+        runAction(pw, {}, function () {
+          return call('auth.change_password', data).then(function (r) {
+            toast(r.message, 'ok');
+            setTimeout(function () { A.logout(); }, 1400);
+          });
+        });
+      });
+    }
+  };
+
+  A.RESETTERS.push(function () {
+    USR.q = ''; USR.role = '';
+    LKP.group = '';
+    AUD.q = ''; AUD.action = ''; AUD.username = ''; AUD.page = 1;
+  });
+
+  A.capLabel = capLabel;
+})(window);
+</script>
