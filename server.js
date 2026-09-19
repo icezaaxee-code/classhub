@@ -591,53 +591,6 @@ app.post('/api/v1/router', async (req, res) => {
       case 'setting.save': {
         const patch = payload || {};
         
-        // ฟังก์ชันช่วยอัปโหลด Base64 ไปยัง Supabase Storage
-        async function uploadBase64ToSupabase(base64Data, fileName) {
-          if (!base64Data || !base64Data.startsWith('data:')) return base64Data;
-          try {
-            const matches = base64Data.match(/^data:(.+);base64,(.+)$/);
-            if (!matches) return base64Data;
-            const mimeType = matches[1];
-            const buffer = Buffer.from(matches[2], 'base64');
-            const ext = mimeType.split('/')[1] || 'png';
-            const filePath = `settings/${Date.now()}_${fileName}.${ext}`;
-
-            const { data, error } = await supabase.storage
-              .from('school-assets') // ชื่อ Bucket ที่สร้างใน Supabase
-              .upload(filePath, buffer, { contentType: mimeType, upsert: true });
-
-            if (error) {
-              console.error('Storage upload error:', error.message);
-              return base64Data; // Fallback กลับไปใช้ค่าเดิมหากอัปโหลดไม่สำเร็จ
-            }
-
-            // ดึง Public URL ของไฟล์ที่อัปโหลด
-            const { data: publicUrlData } = supabase.storage
-              .from('school-assets')
-              .getPublicUrl(filePath);
-
-            return publicUrlData.publicUrl;
-          } catch (err) {
-            console.error('Upload catch error:', err.message);
-            return base64Data;
-          }
-        }
-
-        // แปลงและอัปโหลดรูปภาพแต่ละตัวไปยัง Supabase Storage หากมีการส่งข้อมูลเข้ามาใหม่
-        if (patch.logo_data) {
-          patch.logo_image = await uploadBase64ToSupabase(patch.logo_data, 'logo');
-          delete patch.logo_data;
-        }
-        if (patch.hero_data) {
-          patch.hero_image = await uploadBase64ToSupabase(patch.hero_data, 'hero');
-          delete patch.hero_data;
-        }
-        if (patch.devlogo_data) {
-          patch.dev_logo = await uploadBase64ToSupabase(patch.devlogo_data, 'devlogo');
-          delete patch.devlogo_data;
-        }
-
-        // บันทึกลงตาราง Settings ตามปกติ
         for (const [key, value] of Object.entries(patch)) {
           if (value !== undefined) {
             await supabase.from('Settings').upsert({ 
