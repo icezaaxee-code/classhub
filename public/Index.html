@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <!--
+    App        : CLASSHUB — ศูนย์กลางงานธุรการชั้นเรียน
+    File       : Index.html — โครงหน้าเว็บแอป (เชลล์ + จุดโหลดสคริปต์)
+    Version    : 1.0.0
+    Last Update: 2026-08-20
+    Developer  : นายอรรถสิทธิ์ คำจารย์ 
+    License    : ใช้งานเพื่อการศึกษาและราชการ
+    Notice     : ห้ามจำหน่าย · แบ่งปันเพื่อการศึกษาและต่อยอดเท่านั้น
+  -->
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="description" content="ระบบงานธุรการชั้นเรียนสำหรับโรงเรียนขนาดเล็ก — เช็กชื่อ ดูแลช่วยเหลือนักเรียน เยี่ยมบ้าน สุขภาพ และรายงาน ครบในที่เดียว">
+  <title>CLASSHUB — ศูนย์กลางงานธุรการชั้นเรียน</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css" media="print" id="css-anim">
+
+  <?!= include('Styles'); ?>
+  <?!= include('Styles2'); ?>
+  <?!= include('CacheHelper'); ?>
+</head>
+<body>
+
+  <div id="boot">
+    <div class="boot-logo">CH</div>
+    <div class="boot-title">CLASSHUB</div>
+    <div class="boot-sub" id="boot-sub">กำลังเชื่อมต่อฐานข้อมูล…</div>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-err" id="boot-err" hidden></div>
+  </div>
+
+  <div id="app-root"></div>
+
+  <div id="modal-host" hidden></div>
+  <div id="spin-host" hidden></div>
+  <div id="waffle-host" hidden></div>
+  <div id="search-host" hidden></div>
+  <div id="toast-host"></div>
+
+  <script>
+    window.__BOOT__ = {"ready":true,"settings":{}};
+  </script>
+
+  <?!= include('ScriptsCore'); ?>
+  <?!= include('ScriptsPages'); ?>
+  <?!= include('ScriptsPages2'); ?>
+  <?!= include('ScriptsPages3'); ?>
+  <?!= include('ScriptsPages4'); ?>
+  <?!= include('Scripts'); ?>
+</body>
+</html>

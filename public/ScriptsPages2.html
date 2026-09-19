@@ -1,0 +1,1501 @@
+<!--
+  App        : CLASSHUB — ศูนย์กลางงานธุรการชั้นเรียน
+  File       : ScriptsPages2.html — เช็กชื่อ · ประวัติการมาเรียน · บันทึกประจำวัน · พฤติกรรม · ติดต่อผู้ปกครอง · เยี่ยมบ้าน · เคสติดตาม
+  Version    : 1.0.0
+  Last Update: 2026-08-20
+  Developer  : นายอรรถสิทธิ์ คำจารย์
+  License    : ใช้งานเพื่อการศึกษาและราชการ
+  Notice     : ห้ามจำหน่าย · แบ่งปันเพื่อการศึกษาและต่อยอดเท่านั้น
+-->
+<script type="text/x-app-pages2">
+(function (W) {
+  'use strict';
+  var A = W.APP;
+  var $ = A.$, $$ = A.$$, esc = A.esc, fmt = A.fmt, num = A.num, TH = A.TH;
+  var Store = A.Store, call = A.call, hasCap = A.hasCap, toast = A.toast;
+  var hero = A.hero, panel = A.panel, statCard = A.statCard, emptyBox = A.emptyBox;
+  var skeleton = A.skeleton, pager = A.pager, avatar = A.avatar, badge = A.badge;
+  var modal = A.modal, modalClose = A.modalClose, runAction = A.runAction;
+  var buttonStates = A.buttonStates, confirmBox = A.confirmBox, selectOptions = A.selectOptions;
+  var Routes = A.Routes, guard = A.guard, loading = A.loading, fail = A.failPage;
+  var docHead = A.docHead, docSign = A.docSign, printBtn = A.printBtn;
+  var fieldTxt = A.fieldTxt, fieldSel = A.fieldSel, readForm = A.readForm, attMark = A.attMark;
+
+  /* ═══════════════════════════════════════════════════════════
+     เช็กชื่อประจำวัน — หน้าที่ครูใช้ทุกวัน
+     ═══════════════════════════════════════════════════════════ */
+  var ATT = { date: '', class_id: '', draft: {} };
+
+  var ATT_BTN = [
+    { st: 'มา', ic: 'check-lg', tone: 'ok' },
+    { st: 'ขาด', ic: 'x-lg', tone: 'bad' },
+    { st: 'ลาป่วย', ic: 'heart-pulse', tone: 'warn' },
+    { st: 'ลากิจ', ic: 'briefcase', tone: 'info' },
+    { st: 'มาสาย', ic: 'clock', tone: 'late' },
+    { st: 'กิจกรรม', ic: 'flag', tone: 'acc' },
+    { st: 'อื่น ๆ', ic: 'three-dots', tone: 'mut' }
+  ];
+
+  Routes['#/attendance'] = {
+    cap: 'attendance.view_all|attendance.view_own|attendance.manage',
+    render: function (page, q) {
+      if (q && q.cls) ATT.class_id = q.cls;
+      if (q && q.date) ATT.date = q.date;
+      if (!ATT.date) ATT.date = TH.iso(new Date());
+      loading(page, 'hero');
+      loadAtt(page);
+    }
+  };
+
+  function loadAtt(page) {
+    call('attendance.sheet', { date: ATT.date, class_id: ATT.class_id }).then(function (d) {
+      var p = guard('#/attendance');
+      if (!p) return;
+      ATT.class_id = d.class_id;
+      ATT.date = d.date;
+      ATT.draft = {};
+      (d.items || []).forEach(function (it) {
+        ATT.draft[it.student_id] = { status: it.status, note: it.note, check_time: it.check_time };
+      });
+      paintAtt(p, d);
+    }).catch(function (e) { fail('#/attendance', e); });
+  }
+
+  function paintAtt(page, d) {
+    var k = d.kpi || {};
+    var can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (it) { return attCard(it, can); }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: TH.dateWeekday(d.date), pillIcon: 'calendar-check-fill', title: 'เช็กชื่อ ' + d.class_name,
+        sub: 'กดปุ่มสถานะของนักเรียนแต่ละคน หรือใช้ปุ่มลัดด้านล่างเพื่อตั้งค่าทั้งห้องแล้วแก้เฉพาะคนที่ต่าง',
+        icon: 'ui-checks',
+        actions: can ? '<button class="btn btn-glass" type="button" id="att-all-present">' +
+          '<i class="bi bi-check-all"></i> มาเรียนทั้งห้อง</button>' +
+          '<button class="btn btn-glass" type="button" id="att-clear"><i class="bi bi-eraser-fill"></i> ล้างที่เลือก</button>' +
+          printBtn('พิมพ์บัญชีเรียกชื่อ') : printBtn('พิมพ์บัญชีเรียกชื่อ'),
+        kpis: [
+          { icon: 'people-fill', label: 'นักเรียนทั้งหมด', value: fmt(k.total), unit: 'คน' },
+          { icon: 'check-circle-fill', label: 'มาเรียน', value: fmt(k.present), unit: 'คน' },
+          { icon: 'x-circle-fill', label: 'ขาดเรียน', value: fmt(k.absent), unit: 'คน' },
+          { icon: 'heart-pulse-fill', label: 'ลาป่วย', value: fmt(k.sick), unit: 'คน' },
+          { icon: 'briefcase-fill', label: 'ลากิจ', value: fmt(k.leave), unit: 'คน' },
+          { icon: 'clock-fill', label: 'มาสาย', value: fmt(k.late), unit: 'คน' }
+        ]
+      }) + '</div>' +
+      '<div class="toolbar no-print">' +
+      '<div class="field" style="margin:0;flex:0 1 190px"><label style="font-size:11.5px">วันที่</label>' +
+      '<input class="inp" type="date" id="att-date" value="' + esc(d.date) + '" max="' + esc(TH.iso(new Date())) + '"></div>' +
+      '<div class="field" style="margin:0;flex:1 1 200px"><label style="font-size:11.5px">ห้องเรียน</label>' +
+      '<select class="sel" id="att-class">' + selectOptions(d.classes || [], d.class_id, 'id', 'name') + '</select></div>' +
+      '<div class="row" style="margin-left:auto;gap:6px">' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="att-prev"><i class="bi bi-chevron-left"></i> วันก่อน</button>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="att-today">วันนี้</button>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="att-next">วันถัดไป <i class="bi bi-chevron-right"></i></button>' +
+      '</div>' +
+      '</div>' +
+      docHead('บัญชีเรียกชื่อนักเรียน', d.class_name + ' · ' + TH.dateLong(d.date)) +
+      (k.total ? '<div class="att-grid no-print" id="att-list">' + cards + '</div>' + attPrintTable(d)
+        : panel({
+          body: emptyBox({
+            icon: 'person-x', title: 'ยังไม่มีนักเรียนในห้องนี้',
+            text: 'เพิ่มนักเรียนเข้าห้องเรียนก่อนจึงจะเช็กชื่อได้',
+            action: '<button class="btn btn-primary" type="button" data-hash="#/students"><i class="bi bi-people-fill"></i> ไปที่ทะเบียนนักเรียน</button>'
+          })
+        })) +
+      (can && k.total ? '<div class="stick-bar no-print">' +
+        '<div class="stick-sum" id="att-sum"></div>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn btn-primary" type="button" id="att-save" data-state="idle">' +
+        buttonStates('บันทึกการเช็กชื่อ', 'cloud-arrow-up-fill') + '</button>' +
+        '</div>' : '') +
+      docSign([
+        { role: 'ครูประจำชั้น', name: (Store.user || {}).full_name || '' },
+        { role: (Store.settings || {}).director_position || 'ผู้อำนวยการโรงเรียน', name: (Store.settings || {}).director_name || '' }
+      ]);
+
+    wireAtt(d);
+    updateAttSummary();
+  }
+
+  function attCard(it, can) {
+    var cur = (ATT.draft[it.student_id] || {}).status || '';
+    var btns = ATT_BTN.map(function (b) {
+      return '<button class="att-b' + (cur === b.st ? ' on-' + b.tone : '') + '" type="button" ' +
+        'data-att-set="' + esc(it.student_id) + '" data-st="' + esc(b.st) + '"' + (can ? '' : ' disabled') + '>' +
+        '<i class="bi bi-' + esc(b.ic) + '"></i><span>' + esc(b.st) + '</span></button>';
+    }).join('');
+    var h = it.hist || {};
+    return '<div class="att-card' + (cur ? ' is-set' : '') + (it.alert ? ' is-alert' : '') + '" id="attc-' + esc(it.student_id) + '">' +
+      '<div class="att-top">' +
+      '<div class="att-no">' + esc(it.number || '-') + '</div>' +
+      avatar({ url: it.photo_url, name: it.name, size: 'sm' }) +
+      '<div class="att-nm"><div class="n">' + esc(it.name) + '</div>' +
+      '<div class="s">' + (it.nickname ? esc(it.nickname) + ' · ' : '') + esc(it.code) + '</div></div>' +
+      (it.watch_level !== 'ทั่วไป' ? '<i class="bi bi-exclamation-triangle-fill" style="color:var(--warn)" title="' + esc(it.watch_level) + '"></i>' : '') +
+      '</div>' +
+      '<div class="att-btns">' + btns + '</div>' +
+      '<div class="att-more">' +
+      '<input class="inp att-note" type="text" placeholder="หมายเหตุ (ถ้ามี)" data-att-note="' + esc(it.student_id) + '" ' +
+      'value="' + esc((ATT.draft[it.student_id] || {}).note || '') + '"' + (can ? '' : ' disabled') + '>' +
+      '</div>' +
+      ((h.absent || h.late) ? '<div class="att-hist">' +
+        (h.absent ? '<span>30 วันล่าสุด: ขาด <b>' + h.absent + '</b> ครั้ง</span>' : '') +
+        (h.late ? '<span>สาย <b>' + h.late + '</b> ครั้ง</span>' : '') +
+        '</div>' : '') +
+      '</div>';
+  }
+
+  function attPrintTable(d) {
+    var rows = (d.items || []).map(function (it) {
+      var st = (ATT.draft[it.student_id] || {}).status || '';
+      var mk = attMark(st);
+      return '<tr><td class="n">' + esc(it.number) + '</td>' +
+        '<td class="prpara">' + esc(it.name) + '</td>' +
+        '<td class="n">' + (st ? mk.ch : '') + '</td>' +
+        '<td class="n">' + esc(st) + '</td>' +
+        '<td class="prpara">' + esc((ATT.draft[it.student_id] || {}).note || '') + '</td></tr>';
+    }).join('');
+    return '<div class="pr-only"><table class="prtable">' +
+      '<colgroup><col style="width:9%"><col style="width:41%"><col style="width:10%"><col style="width:18%"><col style="width:22%"></colgroup>' +
+      '<thead><tr><th>เลขที่</th><th>ชื่อ-สกุล</th><th>เครื่องหมาย</th><th>สถานะ</th><th>หมายเหตุ</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div style="margin-top:8px;font-size:10pt">เครื่องหมาย: / = มาเรียน · x = ขาดเรียน · ป = ลาป่วย · ก = ลากิจ · ส = มาสาย · + = เข้าร่วมกิจกรรม</div>' +
+      '</div>';
+  }
+
+  function wireAtt(d) {
+    var dt = $('#att-date');
+    if (dt) dt.addEventListener('change', function () { ATT.date = dt.value; loadAtt($('#page')); });
+    var cl = $('#att-class');
+    if (cl) cl.addEventListener('change', function () { ATT.class_id = cl.value; loadAtt($('#page')); });
+    var pv = $('#att-prev');
+    if (pv) pv.addEventListener('click', function () { ATT.date = TH.shift(ATT.date, -1); loadAtt($('#page')); });
+    var nx = $('#att-next');
+    if (nx) nx.addEventListener('click', function () {
+      var next = TH.shift(ATT.date, 1);
+      if (next > TH.iso(new Date())) { toast('เลือกวันที่ล่วงหน้าไม่ได้', 'warn'); return; }
+      ATT.date = next; loadAtt($('#page'));
+    });
+    var td = $('#att-today');
+    if (td) td.addEventListener('click', function () { ATT.date = TH.iso(new Date()); loadAtt($('#page')); });
+
+    $$('[data-att-set]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var sid = b.getAttribute('data-att-set');
+        var st = b.getAttribute('data-st');
+        if (!ATT.draft[sid]) ATT.draft[sid] = {};
+        ATT.draft[sid].status = (ATT.draft[sid].status === st) ? '' : st;
+        var card = $('#attc-' + sid);
+        if (card) {
+          $$('[data-att-set="' + sid + '"]', card).forEach(function (x) {
+            ATT_BTN.forEach(function (m) { x.classList.remove('on-' + m.tone); });
+          });
+          if (ATT.draft[sid].status) {
+            var meta = ATT_BTN.filter(function (m) { return m.st === ATT.draft[sid].status; })[0];
+            if (meta) b.classList.add('on-' + meta.tone);
+          }
+          card.classList.toggle('is-set', !!ATT.draft[sid].status);
+        }
+        updateAttSummary();
+      });
+    });
+    $$('[data-att-note]').forEach(function (inp) {
+      inp.addEventListener('input', function () {
+        var sid = inp.getAttribute('data-att-note');
+        if (!ATT.draft[sid]) ATT.draft[sid] = {};
+        ATT.draft[sid].note = inp.value;
+      });
+    });
+    var allP = $('#att-all-present');
+    if (allP) {
+      allP.addEventListener('click', function () {
+        (d.items || []).forEach(function (it) {
+          if (!ATT.draft[it.student_id]) ATT.draft[it.student_id] = {};
+          ATT.draft[it.student_id].status = 'มา';
+        });
+        paintAtt($('#page'), d);
+        toast('ตั้งเป็น "มาเรียน" ทั้งห้องแล้ว — แก้เฉพาะคนที่ต่างได้เลย', 'ok');
+      });
+    }
+    var clr = $('#att-clear');
+    if (clr) {
+      clr.addEventListener('click', function () {
+        Object.keys(ATT.draft).forEach(function (kk) { ATT.draft[kk].status = ''; });
+        paintAtt($('#page'), d);
+      });
+    }
+    var save = $('#att-save');
+    if (save) {
+      save.addEventListener('click', function () {
+        var items = Object.keys(ATT.draft).filter(function (sid) { return !!ATT.draft[sid].status; })
+          .map(function (sid) {
+            return { student_id: sid, status: ATT.draft[sid].status, note: ATT.draft[sid].note || '' };
+          });
+        if (!items.length) { toast('ยังไม่ได้เลือกสถานะให้นักเรียนคนใดเลย', 'warn'); return; }
+        runAction(save, {}, function () {
+          return call('attendance.save', { date: ATT.date, class_id: ATT.class_id, items: items }).then(function (r) {
+            Store.home = null;
+            toast('บันทึก ' + fmt(r.saved) + ' รายการเรียบร้อย', 'ok', 'เช็กชื่อสำเร็จ');
+            loadAtt($('#page'));
+          });
+        });
+      });
+    }
+  }
+
+  function updateAttSummary() {
+    var box = $('#att-sum');
+    if (!box) return;
+    var c = { 'มา': 0, 'ขาด': 0, 'ลาป่วย': 0, 'ลากิจ': 0, 'มาสาย': 0, 'กิจกรรม': 0, 'อื่น ๆ': 0 };
+    var done = 0;
+    Object.keys(ATT.draft).forEach(function (kk) {
+      var st = ATT.draft[kk].status;
+      if (st) { c[st] = (c[st] || 0) + 1; done++; }
+    });
+    box.innerHTML = '<span>เลือกแล้ว <b>' + done + '</b> คน</span>' +
+      Object.keys(c).filter(function (kk) { return c[kk] > 0; }).map(function (kk) {
+        return '<span>' + esc(kk) + ' <b>' + c[kk] + '</b></span>';
+      }).join('');
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ประวัติการมาเรียน
+     ═══════════════════════════════════════════════════════════ */
+  var HIS = { class_id: '', from: '', to: '' };
+
+  Routes['#/att-history'] = {
+    cap: 'attendance.view_all|attendance.view_own|attendance.view_self',
+    render: function (page) {
+      if (!HIS.to) { HIS.to = TH.iso(new Date()); HIS.from = TH.shift(HIS.to, -29); }
+      loading(page, 'hero');
+      loadHistory(page);
+    }
+  };
+
+  function loadHistory(page) {
+    call('attendance.history', HIS).then(function (d) {
+      var p = guard('#/att-history');
+      if (!p) return;
+      HIS.class_id = d.class_id;
+      paintHistory(p, d);
+    }).catch(function (e) { fail('#/att-history', e); });
+  }
+
+  function paintHistory(page, d) {
+    var k = d.kpi || {};
+    var dates = d.dates || [];
+    var head = '<th class="ctr">เลขที่</th><th>ชื่อ-สกุล</th>' +
+      dates.map(function (dd) {
+        return '<th class="ctr" title="' + esc(TH.dateLong(dd)) + '">' + esc(TH.parse(dd) ? TH.parse(dd).getDate() : '') +
+          '<br><small style="font-weight:400">' + esc(TH.dowShort(dd)) + '</small></th>';
+      }).join('') +
+      '<th class="ctr">มา</th><th class="ctr">ขาด</th><th class="ctr">สาย</th><th class="ctr">อัตรา</th>';
+    var body = (d.rows || []).map(function (r) {
+      return '<tr><td class="ctr">' + esc(r.number || '-') + '</td>' +
+        '<td><b>' + esc(r.name) + '</b></td>' +
+        dates.map(function (dd) {
+          var mk = attMark(r.days[dd] || '');
+          return '<td class="ctr">' + (r.days[dd] ? '<span class="mark ' + mk.cls + '" title="' + esc(r.days[dd]) + '">' + mk.ch + '</span>' : '<span class="mark mk-none">·</span>') + '</td>';
+        }).join('') +
+        '<td class="ctr">' + r.present + '</td><td class="ctr">' + r.absent + '</td>' +
+        '<td class="ctr">' + r.late + '</td>' +
+        '<td class="ctr"><b style="color:' + (r.rate >= 90 ? 'var(--ok)' : (r.rate >= 75 ? 'var(--warn)' : 'var(--bad)')) + '">' + r.rate + '%</b></td>' +
+        '</tr>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: d.class_name, pillIcon: 'clock-history', title: 'ประวัติการมาเรียน',
+        sub: 'ตารางย้อนหลังพร้อมสถิติรายบุคคล — เลื่อนแนวนอนเพื่อดูวันที่ทั้งหมด',
+        icon: 'clock-history',
+        actions: printBtn('พิมพ์สรุปการมาเรียน'),
+        kpis: [
+          { icon: 'percent', label: 'อัตราการมาเรียน', value: num(d.rate, 0), unit: '%' },
+          { icon: 'check-circle-fill', label: 'มาเรียน', value: fmt(k.present), unit: 'ครั้ง' },
+          { icon: 'x-circle-fill', label: 'ขาดเรียน', value: fmt(k.absent), unit: 'ครั้ง' },
+          { icon: 'clock-fill', label: 'มาสาย', value: fmt(k.late), unit: 'ครั้ง' },
+          { icon: 'heart-pulse-fill', label: 'ลาป่วย/ลากิจ', value: fmt(num(k.sick, 0) + num(k.leave, 0)), unit: 'ครั้ง' }
+        ]
+      }) + '</div>' +
+      '<div class="toolbar no-print">' +
+      '<div class="field" style="margin:0;flex:0 1 170px"><label style="font-size:11.5px">ตั้งแต่วันที่</label>' +
+      '<input class="inp" type="date" id="his-from" value="' + esc(d.from) + '"></div>' +
+      '<div class="field" style="margin:0;flex:0 1 170px"><label style="font-size:11.5px">ถึงวันที่</label>' +
+      '<input class="inp" type="date" id="his-to" value="' + esc(d.to) + '"></div>' +
+      '<div class="field" style="margin:0;flex:1 1 190px"><label style="font-size:11.5px">ห้องเรียน</label>' +
+      '<select class="sel" id="his-class"><option value="">ทุกห้องที่ดูแล</option>' +
+      selectOptions(d.classes || [], d.class_id, 'id', 'name') + '</select></div>' +
+      '<div class="chips" style="margin-left:auto">' +
+      '<button class="chip" type="button" data-range="7">7 วัน</button>' +
+      '<button class="chip" type="button" data-range="30">30 วัน</button>' +
+      '<button class="chip" type="button" data-range="90">1 ภาคเรียน</button>' +
+      '</div>' +
+      '</div>' +
+      docHead('สรุปการมาเรียนของนักเรียน', d.class_name + ' · ' + TH.dateLong(d.from) + ' ถึง ' + TH.dateLong(d.to)) +
+      ((d.rows || []).length ? panel({
+        flush: true,
+        body: '<div class="tbl-wrap"><table class="tbl tbl-mini"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>',
+        foot: '<div style="font-size:11.5px;color:var(--ink-2)">เครื่องหมาย: ' +
+          '<span class="mark mk-present">/</span> มาเรียน · <span class="mark mk-absent">x</span> ขาดเรียน · ' +
+          '<span class="mark mk-sick">ป</span> ลาป่วย · <span class="mark mk-leave">ก</span> ลากิจ · ' +
+          '<span class="mark mk-late">ส</span> มาสาย · <span class="mark mk-event">+</span> เข้าร่วมกิจกรรม</div>'
+      }) : panel({
+        body: emptyBox({
+          icon: 'calendar-x', title: 'ยังไม่มีข้อมูลในช่วงเวลานี้',
+          text: 'ลองขยายช่วงวันที่ หรือเริ่มเช็กชื่อเพื่อให้มีข้อมูล',
+          action: '<button class="btn btn-primary" type="button" data-hash="#/attendance"><i class="bi bi-ui-checks"></i> ไปเช็กชื่อ</button>'
+        })
+      })) +
+      docSign();
+
+    var f = $('#his-from');
+    if (f) f.addEventListener('change', function () { HIS.from = f.value; loadHistory($('#page')); });
+    var t = $('#his-to');
+    if (t) t.addEventListener('change', function () { HIS.to = t.value; loadHistory($('#page')); });
+    var c = $('#his-class');
+    if (c) c.addEventListener('change', function () { HIS.class_id = c.value; loadHistory($('#page')); });
+    $$('[data-range]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        HIS.to = TH.iso(new Date());
+        HIS.from = TH.shift(HIS.to, -(num(b.getAttribute('data-range'), 30) - 1));
+        loadHistory($('#page'));
+      });
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ตัวช่วยกลาง: ตัวเลือกนักเรียน (autocomplete แบบ select)
+     ═══════════════════════════════════════════════════════════ */
+  var STU_CACHE = null;
+
+  function loadStudentOptions() {
+    if (STU_CACHE) return Promise.resolve(STU_CACHE);
+    return call('student.options', {}).then(function (d) {
+      STU_CACHE = d.items || [];
+      return STU_CACHE;
+    });
+  }
+
+  function studentSelect(current, id) {
+    var opts = (STU_CACHE || []).map(function (s) {
+      return '<option value="' + esc(s.id) + '"' + (String(current || '') === String(s.id) ? ' selected' : '') + '>' +
+        esc(s.name) + (s.nickname ? ' (' + esc(s.nickname) + ')' : '') + ' — ' + esc(s.level) + '/' + esc(s.room) +
+        ' เลขที่ ' + esc(s.number) + '</option>';
+    }).join('');
+    return '<div class="field"><label>นักเรียน<span class="req">*</span></label>' +
+      '<select class="sel" data-f="student_id" id="' + esc(id || 'sel-stu') + '" required>' +
+      '<option value="">— เลือกนักเรียน —</option>' + opts + '</select>' +
+      '<div class="hint">พิมพ์ชื่อในช่องเพื่อค้นหาได้ทันที</div></div>';
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     บันทึกประจำวันของครู
+     ═══════════════════════════════════════════════════════════ */
+  var DLY = { q: '', class_id: '', category: '', page: 1 };
+
+  Routes['#/daily'] = {
+    cap: 'daily.view_all|daily.view_own',
+    render: function (page) { loading(page, 'hero'); loadDaily(page); }
+  };
+
+  function loadDaily(page) {
+    call('daily.list', DLY).then(function (d) {
+      var p = guard('#/daily');
+      if (!p) return;
+      paintDaily(p, d);
+    }).catch(function (e) { fail('#/daily', e); });
+  }
+
+  function paintDaily(page, d) {
+    var k = d.kpi || {}, can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (r) {
+      return '<div class="item-card" data-daily="' + esc(r.id) + '">' +
+        '<div class="ic-head"><div class="panel-ic s-info"><i class="bi bi-journal-text"></i></div>' +
+        '<div class="who"><div class="ic-name">' + esc(r.title) + '</div>' +
+        '<div class="ic-sub">' + esc(r.category || 'ไม่ระบุหมวด') + ' · ' + esc(r.class_name) + '</div></div>' +
+        (r.photo_url ? '<i class="bi bi-image-fill" style="color:var(--c10)" title="มีภาพประกอบ"></i>' : '') + '</div>' +
+        '<div class="ic-meta">' +
+        '<span><i class="bi bi-calendar3"></i> ' + esc(TH.date(r.date)) + '</span>' +
+        (r.time ? '<span><i class="bi bi-clock"></i> ' + esc(TH.time(r.time)) + '</span>' : '') +
+        (r.student_count ? '<span><i class="bi bi-people"></i> เกี่ยวข้อง ' + r.student_count + ' คน</span>' : '') +
+        '<span><i class="bi bi-person"></i> ' + esc(r.by) + '</span>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: 'งานประจำวัน', pillIcon: 'journal-text', title: 'บันทึกประจำวันของครู',
+        sub: 'บันทึกสิ่งที่เกิดขึ้นในแต่ละวัน — กิจกรรม เหตุการณ์ ปัญหา และแนวทางดำเนินการ',
+        icon: 'journal-text',
+        actions: (can ? '<button class="btn btn-glass" type="button" id="dly-add"><i class="bi bi-plus-lg"></i> เพิ่มบันทึก</button>' : '') + printBtn(),
+        kpis: [
+          { icon: 'journals', label: 'บันทึกทั้งหมด', value: fmt(k.total), unit: 'รายการ' },
+          { icon: 'calendar-day-fill', label: 'วันนี้', value: fmt(k.today), unit: 'รายการ' },
+          { icon: 'calendar-week-fill', label: '7 วันล่าสุด', value: fmt(k.week), unit: 'รายการ' },
+          { icon: 'image-fill', label: 'มีภาพประกอบ', value: fmt(k.with_photo), unit: 'รายการ' }
+        ]
+      }) + '</div>' +
+      filterBar('dly', d.classes, d.categories, DLY, 'ค้นหาหัวข้อบันทึก…') +
+      docHead('บันทึกประจำวันของครูประจำชั้น', ((Store.year && Store.year.label) || '')) +
+      (d.total ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({
+          body: emptyBox({
+            icon: 'journal-plus', title: 'ยังไม่มีบันทึกประจำวัน',
+            text: 'บันทึกกิจกรรมหน้าเสาธง เหตุการณ์ในห้องเรียน หรืองานที่ได้รับมอบหมายไว้ที่นี่',
+            action: can ? '<button class="btn btn-primary" type="button" id="dly-add2"><i class="bi bi-plus-lg"></i> เพิ่มบันทึกแรก</button>' : ''
+          })
+        })) +
+      '<div class="no-print">' + pager({ page: d.page, pages: d.pages, total: d.total }) + '</div>' +
+      docSign();
+
+    wireFilterBar('dly', DLY, function () { loadDaily($('#page')); });
+    ['#dly-add', '#dly-add2'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.addEventListener('click', function () { openDailyForm('', d); });
+    });
+    $$('[data-daily]').forEach(function (el) {
+      el.addEventListener('click', function () { openDailyView(el.getAttribute('data-daily'), d); });
+    });
+  }
+
+  function filterBar(prefix, classes, categories, state, placeholder) {
+    return '<div class="toolbar no-print">' +
+      '<div class="tb-search"><i class="bi bi-search"></i>' +
+      '<input class="inp" type="search" id="' + prefix + '-q" placeholder="' + esc(placeholder) + '" value="' + esc(state.q || '') + '"></div>' +
+      (classes ? '<select class="sel tb-sel" id="' + prefix + '-class"><option value="">ทุกห้องเรียน</option>' +
+        selectOptions(classes, state.class_id, 'id', 'name') + '</select>' : '') +
+      (categories ? '<select class="sel tb-sel" id="' + prefix + '-cat"><option value="">ทุกประเภท</option>' +
+        (categories || []).map(function (c) {
+          return '<option value="' + esc(c) + '"' + (state.category === c || state.type === c ? ' selected' : '') + '>' + esc(c) + '</option>';
+        }).join('') + '</select>' : '') +
+      '<button class="btn btn-ghost btn-sm" type="button" id="' + prefix + '-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+      '</div>';
+  }
+
+  function wireFilterBar(prefix, state, reload) {
+    var q = $('#' + prefix + '-q');
+    if (q) q.addEventListener('input', A.debounce(function () { state.q = q.value; state.page = 1; reload(); }, 300));
+    var cl = $('#' + prefix + '-class');
+    if (cl) cl.addEventListener('change', function () { state.class_id = cl.value; state.page = 1; reload(); });
+    var ct = $('#' + prefix + '-cat');
+    if (ct) ct.addEventListener('change', function () {
+      if (state.type !== undefined) state.type = ct.value; else state.category = ct.value;
+      state.page = 1; reload();
+    });
+    var cr = $('#' + prefix + '-clear');
+    if (cr) cr.addEventListener('click', function () {
+      state.q = ''; state.class_id = ''; state.page = 1;
+      if (state.type !== undefined) state.type = '';
+      if (state.category !== undefined) state.category = '';
+      if (state.status !== undefined) state.status = '';
+      reload();
+    });
+    $$('.pager button').forEach(function (b) {
+      b.addEventListener('click', function () { state.page = num(b.getAttribute('data-page'), 1); reload(); });
+    });
+  }
+
+  function openDailyView(id, ctx) {
+    A.spinShow('กำลังเปิดบันทึก');
+    call('daily.get', { id: id }).then(function (d) {
+      A.spinHide();
+      var r = d.item || {}, can = (d.can || {}).manage;
+      modal({
+        size: 'lg', custom: true,
+        header: '<div class="mh-hero"><button class="x" type="button" data-close="1" aria-label="ปิด"><i class="bi bi-x-lg"></i></button>' +
+          '<div class="mh-row"><div class="hero-deco" style="flex:0 0 58px;width:58px;height:58px;font-size:24px">' +
+          '<i class="bi bi-journal-text"></i></div>' +
+          '<div style="min-width:0"><div class="mh-t">' + esc(r.title) + '</div>' +
+          '<div class="mh-s">' + esc(r.category) + ' · ' + esc(r.class_name) + '</div></div></div>' +
+          '<div class="mh-stats">' +
+          '<div class="mh-stat"><div class="l">วันที่</div><div class="v" style="font-size:15px">' + esc(TH.date(r.date)) + '</div></div>' +
+          '<div class="mh-stat"><div class="l">เวลา</div><div class="v" style="font-size:15px">' + esc(TH.time(r.time) || '—') + '</div></div>' +
+          '<div class="mh-stat"><div class="l">นักเรียนที่เกี่ยวข้อง</div><div class="v">' + (r.students || []).length + '</div></div>' +
+          '</div></div>',
+        body:
+          '<div class="sec"><div class="sec-t"><i class="bi bi-card-text"></i> รายละเอียด</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.detail || '—') + '</div></div>' +
+          (r.result ? '<div class="sec"><div class="sec-t"><i class="bi bi-check2-circle"></i> ผลการดำเนินงาน</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.result) + '</div></div>' : '') +
+          (r.problem ? '<div class="sec"><div class="sec-t"><i class="bi bi-exclamation-triangle-fill"></i> ปัญหา / อุปสรรค</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.problem) + '</div></div>' : '') +
+          (r.plan ? '<div class="sec"><div class="sec-t"><i class="bi bi-lightbulb-fill"></i> แนวทางดำเนินการ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.plan) + '</div></div>' : '') +
+          ((r.students || []).length ? '<div class="sec"><div class="sec-t"><i class="bi bi-people-fill"></i> นักเรียนที่เกี่ยวข้อง</div>' +
+            '<div class="chips">' + r.students.map(function (s) {
+              return '<span class="chip" data-hash="#/student?id=' + esc(s.id) + '">' + esc(s.name) + '</span>';
+            }).join('') + '</div></div>' : '') +
+          (r.photo_url ? '<div class="sec"><div class="sec-t"><i class="bi bi-image-fill"></i> ภาพประกอบ</div>' +
+            '<img src="' + esc(r.photo_url) + '" alt="ภาพประกอบบันทึก" referrerpolicy="no-referrer" ' +
+            'style="max-width:100%;border-radius:14px;border:1px solid var(--line)"></div>' : '') +
+          (r.file_url ? '<div class="sec"><a class="btn btn-ghost btn-sm" href="' + esc(r.file_url) + '" target="_blank" rel="noopener">' +
+            '<i class="bi bi-paperclip"></i> เปิดไฟล์แนบ</a></div>' : '') +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-info-circle"></i> ข้อมูลการบันทึก</div>' +
+          '<dl class="dl">' + A.dlRow('ผู้บันทึก', r.by) + A.dlRow('บันทึกเมื่อ', TH.dateTime(r.created_at)) +
+          A.dlRow('แก้ไขล่าสุด', TH.dateTime(r.updated_at)) + '</dl></div>',
+        footer: can ? '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>' +
+          '<button class="btn btn-danger btn-icon" type="button" id="dly-del" title="ลบบันทึก"><i class="bi bi-trash-fill"></i></button>' +
+          '<button class="btn btn-primary" type="button" id="dly-edit"><i class="bi bi-pencil-fill"></i> แก้ไข</button>'
+          : '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>',
+        onOpen: function (host) {
+          var ed = $('#dly-edit', host);
+          if (ed) ed.addEventListener('click', function () { modalClose(); openDailyForm(r.id, ctx, r); });
+          var dl = $('#dly-del', host);
+          if (dl) dl.addEventListener('click', function () {
+            confirmBox({ title: 'ลบบันทึกประจำวัน', text: 'ต้องการลบบันทึก "' + r.title + '" ใช่หรือไม่', okText: 'ลบบันทึก' })
+              .then(function (yes) {
+                if (!yes) return;
+                call('daily.delete', { id: r.id }).then(function () {
+                  modalClose(); toast('ลบบันทึกเรียบร้อย', 'ok'); loadDaily($('#page'));
+                }).catch(function (e) { toast(e.message, 'bad'); });
+              });
+          });
+        }
+      });
+    }).catch(function (e) { A.spinHide(); toast(e.message, 'bad'); });
+  }
+
+  function openDailyForm(id, ctx, cur) {
+    var r = cur || { date: TH.iso(new Date()), time: '', class_id: DLY.class_id };
+    loadStudentOptions().then(function () {
+      modal({
+        size: 'lg',
+        title: id ? 'แก้ไขบันทึกประจำวัน' : 'เพิ่มบันทึกประจำวัน',
+        icon: 'journal-plus', tone: 'info',
+        body: '<form id="dly-form"><div class="form-grid">' +
+          fieldTxt('date', 'วันที่', r.date, true, 'date') +
+          fieldTxt('time', 'เวลา', r.time, false, 'time') +
+          '<div class="field"><label>ห้องเรียน<span class="req">*</span></label>' +
+          '<select class="sel" data-f="class_id" required><option value="">— เลือกห้องเรียน —</option>' +
+          selectOptions((ctx && ctx.classes) || Store.classes, r.class_id, 'id', 'name') + '</select></div>' +
+          fieldSel('category', 'หมวดบันทึก', (ctx && ctx.categories) || [], r.category, false) +
+          '<div class="field full">' + fieldTxt('title', 'หัวข้อบันทึก', r.title, true, 'text') + '</div>' +
+          '<div class="field full"><label>รายละเอียด</label>' +
+          '<textarea class="txt" data-f="detail" rows="3" placeholder="อธิบายสิ่งที่เกิดขึ้น">' + esc(r.detail || '') + '</textarea></div>' +
+          '<div class="field full"><label>ผลการดำเนินงาน</label>' +
+          '<textarea class="txt" data-f="result" rows="2">' + esc(r.result || '') + '</textarea></div>' +
+          '<div class="field"><label>ปัญหา / อุปสรรค</label>' +
+          '<textarea class="txt" data-f="problem" rows="2">' + esc(r.problem || '') + '</textarea></div>' +
+          '<div class="field"><label>แนวทางดำเนินการ</label>' +
+          '<textarea class="txt" data-f="plan" rows="2">' + esc(r.plan || '') + '</textarea></div>' +
+          '<div class="field full"><label>นักเรียนที่เกี่ยวข้อง (เลือกได้หลายคน)</label>' +
+          '<select class="sel" id="dly-stu" multiple size="5">' +
+          (STU_CACHE || []).map(function (s) {
+            var on = (r.student_ids || []).indexOf(s.id) >= 0;
+            return '<option value="' + esc(s.id) + '"' + (on ? ' selected' : '') + '>' +
+              esc(s.name) + ' — ' + esc(s.level) + '/' + esc(s.room) + '</option>';
+          }).join('') + '</select>' +
+          '<div class="hint">กด Ctrl (หรือ Command บน Mac) ค้างไว้เพื่อเลือกหลายคน</div></div>' +
+          '<div class="field full"><label>ภาพประกอบ</label>' +
+          '<div class="upload"><div class="upload-pv" id="pv-dly">' +
+          (r.photo_url ? '<img src="' + esc(r.photo_url) + '" alt="ภาพประกอบ" referrerpolicy="no-referrer">' : '<i class="bi bi-image"></i>') +
+          '</div><div style="flex:1"><label class="btn btn-ghost btn-sm"><i class="bi bi-upload"></i> เลือกรูป' +
+          '<input type="file" id="dly-photo" accept="image/png,image/jpeg,image/webp"></label>' +
+          '<div class="hint">JPG · PNG · WEBP ไม่เกิน 8 MB</div></div></div></div>' +
+          '</div>' +
+          '<input type="hidden" data-f="id" value="' + esc(r.id || '') + '">' +
+          '<input type="hidden" data-f="rev" value="' + esc(r.rev || '') + '"></form>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="dly-save" data-state="idle">' + buttonStates('บันทึก', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var sel = $('[data-f="class_id"]', host);
+          if (sel) sel.value = r.class_id || '';
+          var ph = $('#dly-photo', host);
+          if (ph) ph.addEventListener('change', function () { A.previewPhoto(ph, '#pv-dly'); });
+          var sv = $('#dly-save', host);
+          if (sv) sv.addEventListener('click', function () {
+            var data = readForm(host);
+            if (!String(data.title || '').trim()) { toast('กรุณากรอกหัวข้อบันทึก', 'warn'); return; }
+            if (!String(data.class_id || '').trim()) { toast('กรุณาเลือกห้องเรียน', 'warn'); return; }
+            var ms = $('#dly-stu', host);
+            data.student_ids = ms ? $$('option', ms).filter(function (o) { return o.selected; })
+              .map(function (o) { return o.value; }) : [];
+            if (ph && ph.dataset.url) data.photo_data = ph.dataset.url;
+            runAction(sv, {}, function () {
+              return call('daily.save', data).then(function () {
+                modalClose(); toast('บันทึกเรียบร้อย', 'ok'); Store.home = null; loadDaily($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     พฤติกรรมนักเรียน
+     ═══════════════════════════════════════════════════════════ */
+  var BEH = { q: '', class_id: '', type: '', severity: '', page: 1 };
+
+  Routes['#/behaviors'] = {
+    cap: 'behavior.view_all|behavior.view_own|behavior.view_self',
+    render: function (page, q) {
+      if (q && q.student) BEH.student_id = q.student;
+      loading(page, 'hero');
+      loadBehavior(page);
+    }
+  };
+
+  function loadBehavior(page) {
+    call('behavior.list', BEH).then(function (d) {
+      var p = guard('#/behaviors');
+      if (!p) return;
+      paintBehavior(p, d);
+    }).catch(function (e) { fail('#/behaviors', e); });
+  }
+
+  function paintBehavior(page, d) {
+    var k = d.kpi || {}, can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (r) {
+      return '<div class="item-card is-' + (r.tone === 'ok' || r.tone === 'acc' ? 'ok' : (r.tone === 'bad' ? 'alert' : 'warn')) + '" data-beh="' + esc(r.id) + '">' +
+        '<div class="ic-head">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'lg', square: true }) +
+        '<div class="who"><div class="ic-name">' + esc(r.student.name) + '</div>' +
+        '<div class="ic-sub">' + esc(r.student.class_name) + ' เลขที่ ' + esc(r.student.number || '-') + '</div></div>' +
+        badge((r.point > 0 ? '+' : '') + r.point, r.point >= 0 ? 'ok' : 'bad') + '</div>' +
+        '<div style="margin-bottom:8px">' + badge(r.type, r.tone) + ' ' + badge('ระดับ ' + r.severity, 'mut') + '</div>' +
+        '<div class="ic-name" style="font-size:13.5px">' + esc(r.title) + '</div>' +
+        '<div class="ic-body">' + esc((r.detail || '').slice(0, 130)) + ((r.detail || '').length > 130 ? '…' : '') + '</div>' +
+        '<div class="ic-meta"><span><i class="bi bi-calendar3"></i> ' + esc(TH.date(r.date)) + '</span>' +
+        '<span><i class="bi bi-person"></i> ' + esc(r.by) + '</span></div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: 'ดูแลช่วยเหลือนักเรียน', pillIcon: 'emoji-smile-fill', title: 'พฤติกรรมนักเรียน',
+        sub: 'บันทึกทั้งพฤติกรรมเชิงบวกและพฤติกรรมที่ต้องติดตาม เพื่อใช้ประกอบการดูแลช่วยเหลือ',
+        icon: 'emoji-smile-fill',
+        actions: (can ? '<button class="btn btn-glass" type="button" id="beh-add"><i class="bi bi-plus-lg"></i> บันทึกพฤติกรรม</button>' : '') + printBtn(),
+        kpis: [
+          { icon: 'journals', label: 'บันทึกทั้งหมด', value: fmt(k.total), unit: 'รายการ' },
+          { icon: 'hand-thumbs-up-fill', label: 'เชิงบวก', value: fmt(k.positive), unit: 'รายการ' },
+          { icon: 'eye-fill', label: 'ต้องติดตาม', value: fmt(k.watch), unit: 'รายการ' },
+          { icon: 'exclamation-triangle-fill', label: 'ทำผิดระเบียบ', value: fmt(k.violation), unit: 'รายการ' },
+          { icon: 'star-fill', label: 'คะแนนรวม', value: (k.point > 0 ? '+' : '') + fmt(k.point) }
+        ]
+      }) + '</div>' +
+      '<div class="grid g-2 no-print">' +
+      panel({ title: 'สัดส่วนตามประเภทพฤติกรรม', icon: 'pie-chart-fill', tone: 'acc', body: A.svgDonut({ data: d.by_type || [], centerLabel: 'รายการ' }) }) +
+      panel({ title: 'จำนวนตามประเภท', icon: 'bar-chart-fill', tone: 'info', body: A.svgHorizBar({ data: d.by_type || [], suffix: 'รายการ' }) }) +
+      '</div>' +
+      filterBar('beh', d.classes, d.types, BEH, 'ค้นหาหัวข้อหรือรายละเอียด…') +
+      docHead('รายงานพฤติกรรมนักเรียน', ((Store.year && Store.year.label) || '')) +
+      (d.total ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({
+          body: emptyBox({
+            icon: 'emoji-smile', title: 'ยังไม่มีบันทึกพฤติกรรม',
+            text: 'เริ่มบันทึกพฤติกรรมเชิงบวกเพื่อสร้างกำลังใจให้นักเรียน',
+            action: can ? '<button class="btn btn-primary" type="button" id="beh-add2"><i class="bi bi-plus-lg"></i> บันทึกแรก</button>' : ''
+          })
+        })) +
+      '<div class="no-print">' + pager({ page: d.page, pages: d.pages, total: d.total }) + '</div>' +
+      docSign();
+
+    wireFilterBar('beh', BEH, function () { loadBehavior($('#page')); });
+    ['#beh-add', '#beh-add2'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.addEventListener('click', function () { openBehaviorForm(null, d); });
+    });
+    $$('[data-beh]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-beh');
+        var r = (d.items || []).filter(function (x) { return x.id === id; })[0];
+        if (r) openBehaviorView(r, d);
+      });
+    });
+  }
+
+  function openBehaviorView(r, ctx) {
+    var can = (ctx.can || {}).manage;
+    modal({
+      size: 'lg', custom: true,
+      header: '<div class="mh-hero"><button class="x" type="button" data-close="1" aria-label="ปิด"><i class="bi bi-x-lg"></i></button>' +
+        '<div class="mh-row">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'xl' }) +
+        '<div style="min-width:0"><div class="mh-t">' + esc(r.student.name) + '</div>' +
+        '<div class="mh-s">' + esc(r.student.class_name) + ' · ' + esc(r.type) + '</div></div></div>' +
+        '<div class="mh-stats">' +
+        '<div class="mh-stat"><div class="l">วันที่</div><div class="v" style="font-size:15px">' + esc(TH.date(r.date)) + '</div></div>' +
+        '<div class="mh-stat"><div class="l">ระดับความสำคัญ</div><div class="v" style="font-size:15px">' + esc(r.severity) + '</div></div>' +
+        '<div class="mh-stat"><div class="l">คะแนน</div><div class="v">' + (r.point > 0 ? '+' : '') + r.point + '</div></div>' +
+        '</div></div>',
+      body:
+        '<div class="sec"><div class="sec-t"><i class="bi bi-card-heading"></i> หัวข้อ</div>' +
+        '<div style="font-size:14.5px;font-weight:600">' + esc(r.title) + '</div></div>' +
+        '<div class="sec"><div class="sec-t"><i class="bi bi-card-text"></i> รายละเอียด</div>' +
+        '<div style="font-size:13.5px;line-height:1.8">' + esc(r.detail || '—') + '</div></div>' +
+        (r.action ? '<div class="sec"><div class="sec-t"><i class="bi bi-check2-square"></i> การดำเนินการ</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.action) + '</div></div>' : '') +
+        (r.involved ? '<div class="sec"><div class="sec-t"><i class="bi bi-people"></i> ผู้เกี่ยวข้อง</div>' +
+          '<div style="font-size:13.5px">' + esc(r.involved) + '</div></div>' : '') +
+        '<div class="sec"><div class="sec-t"><i class="bi bi-link-45deg"></i> เชื่อมโยง</div>' +
+        '<button class="btn btn-soft btn-sm" type="button" data-hash="#/student?id=' + esc(r.student.id) + '">' +
+        '<i class="bi bi-person-vcard-fill"></i> เปิดโปรไฟล์นักเรียน</button></div>' +
+        '<div class="sec"><dl class="dl">' + A.dlRow('ผู้บันทึก', r.by) + '</dl></div>',
+      footer: can ? '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>' +
+        '<button class="btn btn-danger btn-icon" type="button" id="beh-del"><i class="bi bi-trash-fill"></i></button>' +
+        '<button class="btn btn-primary" type="button" id="beh-edit"><i class="bi bi-pencil-fill"></i> แก้ไข</button>'
+        : '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>',
+      onOpen: function (host) {
+        var ed = $('#beh-edit', host);
+        if (ed) ed.addEventListener('click', function () { modalClose(); openBehaviorForm(r, ctx); });
+        var dl = $('#beh-del', host);
+        if (dl) dl.addEventListener('click', function () {
+          confirmBox({ title: 'ลบบันทึกพฤติกรรม', text: 'ต้องการลบบันทึกนี้ใช่หรือไม่', okText: 'ลบ' }).then(function (yes) {
+            if (!yes) return;
+            call('behavior.delete', { id: r.id }).then(function () {
+              modalClose(); toast('ลบเรียบร้อย', 'ok'); loadBehavior($('#page'));
+            }).catch(function (e) { toast(e.message, 'bad'); });
+          });
+        });
+      }
+    });
+  }
+
+  function openBehaviorForm(r, ctx) {
+    var cur = r || { date: TH.iso(new Date()), severity: 'น้อย', point: 0 };
+    loadStudentOptions().then(function () {
+      modal({
+        size: 'lg',
+        title: cur.id ? 'แก้ไขบันทึกพฤติกรรม' : 'บันทึกพฤติกรรมนักเรียน',
+        icon: 'emoji-smile-fill', tone: 'warn',
+        body: '<form id="beh-form"><div class="form-grid">' +
+          '<div class="field full">' + studentSelect(cur.student ? cur.student.id : '', 'beh-stu') + '</div>' +
+          fieldTxt('date', 'วันที่', cur.date, true, 'date') +
+          fieldSel('type', 'ประเภทพฤติกรรม', (ctx && ctx.types) || [], cur.type, true) +
+          fieldSel('severity', 'ระดับความสำคัญ', (ctx && ctx.severities) || ['น้อย', 'ปานกลาง', 'มาก'], cur.severity, false) +
+          fieldTxt('point', 'คะแนน (บวก/ลบ)', cur.point, false, 'number') +
+          '<div class="field full">' + fieldTxt('title', 'หัวข้อ', cur.title, true, 'text') + '</div>' +
+          '<div class="field full"><label>รายละเอียด</label>' +
+          '<textarea class="txt" data-f="detail" rows="3">' + esc(cur.detail || '') + '</textarea></div>' +
+          '<div class="field"><label>การดำเนินการ</label>' +
+          '<textarea class="txt" data-f="action" rows="2">' + esc(cur.action || '') + '</textarea></div>' +
+          '<div class="field"><label>ผู้เกี่ยวข้อง</label>' +
+          '<textarea class="txt" data-f="involved" rows="2">' + esc(cur.involved || '') + '</textarea></div>' +
+          '</div>' +
+          '<input type="hidden" data-f="id" value="' + esc(cur.id || '') + '">' +
+          '<input type="hidden" data-f="rev" value="' + esc(cur.rev || '') + '"></form>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="beh-save" data-state="idle">' + buttonStates('บันทึก', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var sv = $('#beh-save', host);
+          if (!sv) return;
+          sv.addEventListener('click', function () {
+            var data = readForm(host);
+            if (!data.student_id) { toast('กรุณาเลือกนักเรียน', 'warn'); return; }
+            if (!data.type) { toast('กรุณาเลือกประเภทพฤติกรรม', 'warn'); return; }
+            if (!String(data.title || '').trim()) { toast('กรุณากรอกหัวข้อ', 'warn'); return; }
+            runAction(sv, {}, function () {
+              return call('behavior.save', data).then(function () {
+                modalClose(); toast('บันทึกพฤติกรรมเรียบร้อย', 'ok'); Store.home = null; loadBehavior($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ติดต่อผู้ปกครอง
+     ═══════════════════════════════════════════════════════════ */
+  var CON = { q: '', channel: '', page: 1 };
+
+  Routes['#/contacts'] = {
+    cap: 'contact.view_all|contact.view_own',
+    render: function (page) { loading(page, 'hero'); loadContact(page); }
+  };
+
+  function loadContact(page) {
+    call('contact.list', CON).then(function (d) {
+      var p = guard('#/contacts');
+      if (!p) return;
+      paintContact(p, d);
+    }).catch(function (e) { fail('#/contacts', e); });
+  }
+
+  function paintContact(page, d) {
+    var k = d.kpi || {}, can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (r) {
+      return '<div class="item-card" data-con="' + esc(r.id) + '">' +
+        '<div class="ic-head">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'lg', square: true }) +
+        '<div class="who"><div class="ic-name">' + esc(r.student.name) + '</div>' +
+        '<div class="ic-sub">' + esc(r.student.class_name) + (r.parent_name ? ' · ผู้ปกครอง ' + esc(r.parent_name) : '') + '</div></div>' +
+        '<div class="panel-ic s-acc"><i class="bi bi-' + esc(r.icon) + '"></i></div></div>' +
+        '<div style="margin-bottom:7px">' + badge(r.channel, 'acc', r.icon) +
+        (r.appointment_date ? ' ' + badge('นัด ' + TH.date(r.appointment_date), 'warn', 'calendar-event') : '') + '</div>' +
+        '<div class="ic-name" style="font-size:13.5px">' + esc(r.subject) + '</div>' +
+        '<div class="ic-body">' + esc((r.result || r.detail || '').slice(0, 120)) + '</div>' +
+        '<div class="ic-meta"><span><i class="bi bi-calendar3"></i> ' + esc(TH.date(r.date)) + '</span>' +
+        '<span><i class="bi bi-person"></i> ' + esc(r.by) + '</span></div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: 'ดูแลช่วยเหลือนักเรียน', pillIcon: 'telephone-fill', title: 'ติดต่อผู้ปกครอง',
+        sub: 'บันทึกการสื่อสารทุกช่องทาง ระบบสร้างประวัติการติดต่อรายบุคคลให้อัตโนมัติ',
+        icon: 'telephone-fill',
+        actions: (can ? '<button class="btn btn-glass" type="button" id="con-add"><i class="bi bi-plus-lg"></i> บันทึกการติดต่อ</button>' : '') + printBtn(),
+        kpis: [
+          { icon: 'chat-dots-fill', label: 'ติดต่อทั้งหมด', value: fmt(k.total), unit: 'ครั้ง' },
+          { icon: 'calendar-month-fill', label: 'เดือนนี้', value: fmt(k.month), unit: 'ครั้ง' },
+          { icon: 'calendar-event-fill', label: 'มีนัดหมายรออยู่', value: fmt(k.appointment), unit: 'รายการ' },
+          { icon: 'arrow-repeat', label: 'ต้องติดตามต่อ', value: fmt(k.followup), unit: 'รายการ' }
+        ]
+      }) + '</div>' +
+      panel({
+        title: 'ช่องทางที่ใช้ติดต่อ', icon: 'diagram-3-fill', tone: 'acc', cls: 'no-print',
+        body: A.svgHorizBar({ data: d.by_channel || [], suffix: 'ครั้ง' })
+      }) +
+      '<div class="toolbar no-print">' +
+      '<div class="tb-search"><i class="bi bi-search"></i>' +
+      '<input class="inp" type="search" id="con-q" placeholder="ค้นหาเรื่องที่ติดต่อ…" value="' + esc(CON.q) + '"></div>' +
+      '<select class="sel tb-sel" id="con-ch"><option value="">ทุกช่องทาง</option>' +
+      (d.channels || []).map(function (c) {
+        return '<option value="' + esc(c) + '"' + (CON.channel === c ? ' selected' : '') + '>' + esc(c) + '</option>';
+      }).join('') + '</select>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="con-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+      '</div>' +
+      docHead('รายงานการติดต่อผู้ปกครอง', ((Store.year && Store.year.label) || '')) +
+      (d.total ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({
+          body: emptyBox({
+            icon: 'telephone-x', title: 'ยังไม่มีบันทึกการติดต่อ',
+            text: 'บันทึกทุกครั้งที่ติดต่อผู้ปกครองเพื่อสร้างประวัติที่ตรวจสอบย้อนหลังได้',
+            action: can ? '<button class="btn btn-primary" type="button" id="con-add2"><i class="bi bi-plus-lg"></i> บันทึกครั้งแรก</button>' : ''
+          })
+        })) +
+      '<div class="no-print">' + pager({ page: d.page, pages: d.pages, total: d.total }) + '</div>' +
+      docSign();
+
+    var q = $('#con-q');
+    if (q) q.addEventListener('input', A.debounce(function () { CON.q = q.value; CON.page = 1; loadContact($('#page')); }, 300));
+    var ch = $('#con-ch');
+    if (ch) ch.addEventListener('change', function () { CON.channel = ch.value; CON.page = 1; loadContact($('#page')); });
+    var cl = $('#con-clear');
+    if (cl) cl.addEventListener('click', function () { CON.q = ''; CON.channel = ''; CON.page = 1; loadContact($('#page')); });
+    $$('.pager button').forEach(function (b) {
+      b.addEventListener('click', function () { CON.page = num(b.getAttribute('data-page'), 1); loadContact($('#page')); });
+    });
+    ['#con-add', '#con-add2'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.addEventListener('click', function () { openContactForm(null, d); });
+    });
+    $$('[data-con]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var id = el.getAttribute('data-con');
+        var r = (d.items || []).filter(function (x) { return x.id === id; })[0];
+        if (r) openContactView(r, d);
+      });
+    });
+  }
+
+  function openContactView(r, ctx) {
+    var can = (ctx.can || {}).manage;
+    modal({
+      size: 'lg', custom: true,
+      header: '<div class="mh-hero"><button class="x" type="button" data-close="1" aria-label="ปิด"><i class="bi bi-x-lg"></i></button>' +
+        '<div class="mh-row">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'xl' }) +
+        '<div style="min-width:0"><div class="mh-t">' + esc(r.subject) + '</div>' +
+        '<div class="mh-s">' + esc(r.student.name) + ' · ' + esc(r.student.class_name) + '</div></div></div>' +
+        '<div class="mh-stats">' +
+        '<div class="mh-stat"><div class="l">ช่องทาง</div><div class="v" style="font-size:15px">' + esc(r.channel) + '</div></div>' +
+        '<div class="mh-stat"><div class="l">วันที่ติดต่อ</div><div class="v" style="font-size:15px">' + esc(TH.date(r.date)) + '</div></div>' +
+        '<div class="mh-stat"><div class="l">วันนัดหมาย</div><div class="v" style="font-size:15px">' +
+        esc(r.appointment_date ? TH.date(r.appointment_date) : '—') + '</div></div>' +
+        '</div></div>',
+      body:
+        '<div class="sec"><div class="sec-t"><i class="bi bi-card-text"></i> รายละเอียดการติดต่อ</div>' +
+        '<div style="font-size:13.5px;line-height:1.8">' + esc(r.detail || '—') + '</div></div>' +
+        (r.result ? '<div class="sec"><div class="sec-t"><i class="bi bi-chat-quote-fill"></i> ผลการพูดคุย</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.result) + '</div></div>' : '') +
+        (r.conclusion ? '<div class="sec"><div class="sec-t"><i class="bi bi-check2-all"></i> ข้อสรุป</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.conclusion) + '</div></div>' : '') +
+        (r.followup ? '<div class="sec"><div class="sec-t"><i class="bi bi-arrow-repeat"></i> สิ่งที่ต้องติดตาม</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.followup) + '</div></div>' : '') +
+        '<div class="sec"><div class="sec-t"><i class="bi bi-link-45deg"></i> เชื่อมโยง</div>' +
+        '<button class="btn btn-soft btn-sm" type="button" data-hash="#/student?id=' + esc(r.student.id) + '">' +
+        '<i class="bi bi-person-vcard-fill"></i> เปิดโปรไฟล์นักเรียน</button></div>',
+      footer: can ? '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>' +
+        '<button class="btn btn-danger btn-icon" type="button" id="con-del"><i class="bi bi-trash-fill"></i></button>' +
+        '<button class="btn btn-primary" type="button" id="con-edit"><i class="bi bi-pencil-fill"></i> แก้ไข</button>'
+        : '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>',
+      onOpen: function (host) {
+        var ed = $('#con-edit', host);
+        if (ed) ed.addEventListener('click', function () { modalClose(); openContactForm(r, ctx); });
+        var dl = $('#con-del', host);
+        if (dl) dl.addEventListener('click', function () {
+          confirmBox({ title: 'ลบบันทึกการติดต่อ', text: 'ต้องการลบบันทึกนี้ใช่หรือไม่', okText: 'ลบ' }).then(function (yes) {
+            if (!yes) return;
+            call('contact.delete', { id: r.id }).then(function () {
+              modalClose(); toast('ลบเรียบร้อย', 'ok'); loadContact($('#page'));
+            }).catch(function (e) { toast(e.message, 'bad'); });
+          });
+        });
+      }
+    });
+  }
+
+  function openContactForm(r, ctx) {
+    var cur = r || { date: TH.iso(new Date()) };
+    loadStudentOptions().then(function () {
+      modal({
+        size: 'lg',
+        title: cur.id ? 'แก้ไขบันทึกการติดต่อ' : 'บันทึกการติดต่อผู้ปกครอง',
+        icon: 'telephone-fill', tone: 'acc',
+        body: '<form id="con-form"><div class="form-grid">' +
+          '<div class="field full">' + studentSelect(cur.student ? cur.student.id : '', 'con-stu') + '</div>' +
+          fieldTxt('date', 'วันที่ติดต่อ', cur.date, true, 'date') +
+          fieldSel('channel', 'ช่องทางติดต่อ', (ctx && ctx.channels) || [], cur.channel, true) +
+          '<div class="field full">' + fieldTxt('subject', 'เรื่องที่ติดต่อ', cur.subject, true, 'text') + '</div>' +
+          '<div class="field full"><label>รายละเอียด</label>' +
+          '<textarea class="txt" data-f="detail" rows="3">' + esc(cur.detail || '') + '</textarea></div>' +
+          '<div class="field"><label>ผลการพูดคุย</label>' +
+          '<textarea class="txt" data-f="result" rows="2">' + esc(cur.result || '') + '</textarea></div>' +
+          '<div class="field"><label>ข้อสรุป</label>' +
+          '<textarea class="txt" data-f="conclusion" rows="2">' + esc(cur.conclusion || '') + '</textarea></div>' +
+          '<div class="field"><label>สิ่งที่ต้องติดตาม</label>' +
+          '<textarea class="txt" data-f="followup" rows="2">' + esc(cur.followup || '') + '</textarea></div>' +
+          fieldTxt('appointment_date', 'วันนัดหมายครั้งต่อไป', cur.appointment_date, false, 'date') +
+          '</div>' +
+          '<div class="hint" style="margin-top:6px"><i class="bi bi-info-circle"></i> ' +
+          'หากระบุวันนัดหมาย ระบบจะสร้างงานในปฏิทินให้อัตโนมัติ</div>' +
+          '<input type="hidden" data-f="id" value="' + esc(cur.id || '') + '">' +
+          '<input type="hidden" data-f="rev" value="' + esc(cur.rev || '') + '"></form>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="con-save" data-state="idle">' + buttonStates('บันทึก', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var sv = $('#con-save', host);
+          if (!sv) return;
+          sv.addEventListener('click', function () {
+            var data = readForm(host);
+            if (!data.student_id) { toast('กรุณาเลือกนักเรียน', 'warn'); return; }
+            if (!data.channel) { toast('กรุณาเลือกช่องทางติดต่อ', 'warn'); return; }
+            if (!String(data.subject || '').trim()) { toast('กรุณากรอกเรื่องที่ติดต่อ', 'warn'); return; }
+            runAction(sv, {}, function () {
+              return call('contact.save', data).then(function () {
+                modalClose(); toast('บันทึกการติดต่อเรียบร้อย', 'ok'); Store.home = null; loadContact($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     เยี่ยมบ้านนักเรียน
+     ═══════════════════════════════════════════════════════════ */
+  var VIS = { q: '', class_id: '', status: '', page: 1 };
+
+  Routes['#/visits'] = {
+    cap: 'visit.view_all|visit.view_own',
+    render: function (page) { loading(page, 'hero'); loadVisit(page); }
+  };
+
+  function loadVisit(page) {
+    call('visit.list', VIS).then(function (d) {
+      var p = guard('#/visits');
+      if (!p) return;
+      paintVisit(p, d);
+    }).catch(function (e) { fail('#/visits', e); });
+  }
+
+  function paintVisit(page, d) {
+    var k = d.kpi || {}, can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (r) {
+      return '<div class="item-card' + (r.status === 'ต้องติดตาม' ? ' is-warn' : '') + '" data-vis="' + esc(r.id) + '">' +
+        (r.photo_url ? '<img src="' + esc(r.photo_url) + '" alt="ภาพบ้านนักเรียน" referrerpolicy="no-referrer" ' +
+          'style="width:100%;height:130px;object-fit:cover;border-radius:12px;margin-bottom:11px">' : '') +
+        '<div class="ic-head">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'lg', square: true }) +
+        '<div class="who"><div class="ic-name">' + esc(r.student.name) + '</div>' +
+        '<div class="ic-sub">' + esc(r.student.class_name) + '</div></div>' +
+        badge(r.status, r.tone) + '</div>' +
+        '<div class="ic-meta">' +
+        '<span><i class="bi bi-calendar3"></i> ' + esc(TH.date(r.visit_date)) + '</span>' +
+        '<span><i class="bi bi-person-walking"></i> ' + esc((r.visitor || '').slice(0, 30)) + '</span>' +
+        (r.next_date ? '<span style="color:var(--warn)"><i class="bi bi-alarm"></i> ติดตาม ' + esc(TH.date(r.next_date)) + '</span>' : '') +
+        '</div>' +
+        '</div>';
+    }).join('');
+
+    var notVisited = (d.not_visited || []).map(function (s) {
+      return '<div class="lst-row" data-visit-new="' + esc(s.id) + '">' +
+        avatar({ url: s.photo_url, name: s.name, size: 'sm' }) +
+        '<div class="main"><div class="t">' + esc(s.name) + '</div><div class="s">' + esc(s.class_name) + '</div></div>' +
+        '<div class="r">' + (can ? '<button class="btn btn-soft btn-sm" type="button">' +
+          '<i class="bi bi-house-add-fill"></i> บันทึกเยี่ยม</button>' : badge('ยังไม่ได้เยี่ยม', 'mut')) + '</div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: 'ดูแลช่วยเหลือนักเรียน', pillIcon: 'house-heart-fill', title: 'เยี่ยมบ้านนักเรียน',
+        sub: 'แบบบันทึกออกแบบให้กรอกจากมือถือขณะอยู่หน้างานได้ทันที พร้อมแนบภาพถ่ายและพิกัด',
+        icon: 'house-heart-fill',
+        actions: (can ? '<button class="btn btn-glass" type="button" id="vis-add"><i class="bi bi-plus-lg"></i> บันทึกการเยี่ยมบ้าน</button>' : '') + printBtn(),
+        kpis: [
+          { icon: 'journals', label: 'บันทึกทั้งหมด', value: fmt(k.total), unit: 'ครั้ง' },
+          { icon: 'house-check-fill', label: 'เยี่ยมแล้ว', value: fmt(k.visited), unit: 'ครั้ง' },
+          { icon: 'calendar-event-fill', label: 'นัดหมายแล้ว', value: fmt(k.appointed), unit: 'ครั้ง' },
+          { icon: 'arrow-repeat', label: 'ต้องติดตาม', value: fmt(k.followup), unit: 'ครั้ง' },
+          { icon: 'house-slash-fill', label: 'ยังไม่เคยเยี่ยม', value: fmt(d.not_visited_total), unit: 'คน' }
+        ]
+      }) + '</div>' +
+      '<div class="toolbar no-print">' +
+      '<div class="tb-search"><i class="bi bi-search"></i>' +
+      '<input class="inp" type="search" id="vis-q" placeholder="ค้นหาชื่อนักเรียน…" value="' + esc(VIS.q) + '"></div>' +
+      '<select class="sel tb-sel" id="vis-class"><option value="">ทุกห้องเรียน</option>' +
+      selectOptions(d.classes || [], VIS.class_id, 'id', 'name') + '</select>' +
+      '<div class="chips">' +
+      A.chip('vst', '', 'ทั้งหมด', VIS.status === '') +
+      (d.statuses || []).map(function (s) { return A.chip('vst', s, s, VIS.status === s); }).join('') +
+      '</div>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="vis-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+      '</div>' +
+      docHead('รายงานการเยี่ยมบ้านนักเรียน', ((Store.year && Store.year.label) || '')) +
+      (d.total ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({
+          body: emptyBox({
+            icon: 'house-add', title: 'ยังไม่มีบันทึกการเยี่ยมบ้าน',
+            text: 'เริ่มบันทึกการเยี่ยมบ้านเพื่อทำความรู้จักสภาพความเป็นอยู่ของนักเรียน',
+            action: can ? '<button class="btn btn-primary" type="button" id="vis-add2"><i class="bi bi-plus-lg"></i> บันทึกครั้งแรก</button>' : ''
+          })
+        })) +
+      '<div class="no-print">' + pager({ page: d.page, pages: d.pages, total: d.total }) + '</div>' +
+      (notVisited ? panel({
+        title: 'นักเรียนที่ยังไม่เคยเยี่ยมบ้าน', sub: 'รวม ' + fmt(d.not_visited_total) + ' คน — งานที่ยังค้างอยู่',
+        icon: 'house-slash-fill', tone: 'warn', flush: true, cls: 'no-print',
+        body: '<div class="lst">' + notVisited + '</div>'
+      }) : '') +
+      docSign();
+
+    var q = $('#vis-q');
+    if (q) q.addEventListener('input', A.debounce(function () { VIS.q = q.value; VIS.page = 1; loadVisit($('#page')); }, 300));
+    var cl = $('#vis-class');
+    if (cl) cl.addEventListener('change', function () { VIS.class_id = cl.value; VIS.page = 1; loadVisit($('#page')); });
+    $$('[data-chip="vst"]').forEach(function (b) {
+      b.addEventListener('click', function () { VIS.status = b.getAttribute('data-val'); VIS.page = 1; loadVisit($('#page')); });
+    });
+    var cr = $('#vis-clear');
+    if (cr) cr.addEventListener('click', function () { VIS.q = ''; VIS.class_id = ''; VIS.status = ''; VIS.page = 1; loadVisit($('#page')); });
+    $$('.pager button').forEach(function (b) {
+      b.addEventListener('click', function () { VIS.page = num(b.getAttribute('data-page'), 1); loadVisit($('#page')); });
+    });
+    ['#vis-add', '#vis-add2'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.addEventListener('click', function () { openVisitForm('', '', d); });
+    });
+    $$('[data-visit-new]').forEach(function (el) {
+      el.addEventListener('click', function () { openVisitForm('', el.getAttribute('data-visit-new'), d); });
+    });
+    $$('[data-vis]').forEach(function (el) {
+      el.addEventListener('click', function () { openVisitView(el.getAttribute('data-vis'), d); });
+    });
+  }
+
+  function openVisitView(id, ctx) {
+    A.spinShow('กำลังเปิดบันทึกการเยี่ยมบ้าน');
+    call('visit.get', { id: id }).then(function (d) {
+      A.spinHide();
+      var r = d.item || {}, s = d.student || {}, can = (d.can || {}).manage;
+      modal({
+        size: 'lg', custom: true,
+        header: '<div class="mh-hero"><button class="x" type="button" data-close="1" aria-label="ปิด"><i class="bi bi-x-lg"></i></button>' +
+          '<div class="mh-row">' + avatar({ url: s.photo_url, name: s.name, size: 'xl' }) +
+          '<div style="min-width:0"><div class="mh-t">' + esc(s.name) + '</div>' +
+          '<div class="mh-s">' + esc(s.class_name) + ' · เยี่ยมเมื่อ ' + esc(TH.dateLong(r.visit_date)) + '</div></div></div>' +
+          '<div class="mh-stats">' +
+          '<div class="mh-stat"><div class="l">สถานะ</div><div class="v" style="font-size:14px">' + esc(r.status) + '</div></div>' +
+          '<div class="mh-stat"><div class="l">สภาพเศรษฐกิจ</div><div class="v" style="font-size:14px">' + esc(r.economic || '—') + '</div></div>' +
+          '<div class="mh-stat"><div class="l">สมาชิกครอบครัว</div><div class="v">' + esc(r.family_members || '—') + '</div></div>' +
+          '</div></div>',
+        body:
+          (r.photo_url ? '<img src="' + esc(r.photo_url) + '" alt="ภาพบ้านนักเรียน" referrerpolicy="no-referrer" ' +
+            'style="width:100%;max-height:260px;object-fit:cover;border-radius:14px;margin-bottom:16px">' : '') +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-house-fill"></i> ข้อมูลที่อยู่อาศัย</div>' +
+          '<dl class="dl">' + A.dlRow('ที่อยู่', r.address) + A.dlRow('ผู้ให้ข้อมูล', r.informant) +
+          A.dlRow('ความสัมพันธ์', r.informant_relation) + A.dlRow('ลักษณะที่อยู่', r.house_type) +
+          A.dlRow('สภาพที่อยู่อาศัย', r.house_condition) + A.dlRow('รายได้ครอบครัว/เดือน', r.income_month ? fmt(r.income_month) + ' บาท' : '—') +
+          A.dlRow('การเดินทาง', r.travel) + A.dlRow('ผู้เยี่ยม', r.visitor) + '</dl></div>' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-tree-fill"></i> สภาพแวดล้อมและครอบครัว</div>' +
+          '<dl class="dl">' + A.dlRow('สภาพแวดล้อม', r.environment) + A.dlRow('ความสัมพันธ์ในครอบครัว', r.relationship) +
+          A.dlRow('การสนับสนุนด้านการเรียน', r.learning_support) + '</dl></div>' +
+          (r.problems ? '<div class="sec"><div class="sec-t"><i class="bi bi-exclamation-triangle-fill"></i> ปัญหา / ความต้องการ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.problems) + '</div></div>' : '') +
+          (r.suggestion ? '<div class="sec"><div class="sec-t"><i class="bi bi-lightbulb-fill"></i> ข้อเสนอแนะ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.suggestion) + '</div></div>' : '') +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-link-45deg"></i> เชื่อมโยง</div>' +
+          '<button class="btn btn-soft btn-sm" type="button" data-hash="#/student?id=' + esc(s.id) + '">' +
+          '<i class="bi bi-person-vcard-fill"></i> เปิดโปรไฟล์นักเรียน</button></div>',
+        footer: can ? '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>' +
+          '<button class="btn btn-danger btn-icon" type="button" id="vis-del"><i class="bi bi-trash-fill"></i></button>' +
+          '<button class="btn btn-primary" type="button" id="vis-edit"><i class="bi bi-pencil-fill"></i> แก้ไข</button>'
+          : '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>',
+        onOpen: function (host) {
+          var ed = $('#vis-edit', host);
+          if (ed) ed.addEventListener('click', function () { modalClose(); openVisitForm(r.id, s.id, ctx, r); });
+          var dl = $('#vis-del', host);
+          if (dl) dl.addEventListener('click', function () {
+            confirmBox({ title: 'ลบบันทึกการเยี่ยมบ้าน', text: 'ต้องการลบบันทึกนี้ใช่หรือไม่', okText: 'ลบ' }).then(function (yes) {
+              if (!yes) return;
+              call('visit.delete', { id: r.id }).then(function () {
+                modalClose(); toast('ลบเรียบร้อย', 'ok'); loadVisit($('#page'));
+              }).catch(function (e) { toast(e.message, 'bad'); });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { A.spinHide(); toast(e.message, 'bad'); });
+  }
+
+  function openVisitForm(id, studentId, ctx, cur) {
+    var r = cur || { visit_date: TH.iso(new Date()), status: 'เยี่ยมแล้ว' };
+    loadStudentOptions().then(function () {
+      modal({
+        size: 'xl',
+        title: id ? 'แก้ไขบันทึกการเยี่ยมบ้าน' : 'บันทึกการเยี่ยมบ้านนักเรียน',
+        icon: 'house-heart-fill', tone: 'ok',
+        body: '<form id="vis-form">' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-person-fill"></i> ข้อมูลทั่วไป</div>' +
+          '<div class="form-grid">' +
+          '<div class="field full">' + studentSelect(studentId || '', 'vis-stu') + '</div>' +
+          fieldTxt('visit_date', 'วันที่เยี่ยม', r.visit_date, true, 'date') +
+          fieldTxt('visitor', 'ผู้เยี่ยม', r.visitor || (Store.user || {}).full_name, false, 'text') +
+          fieldSel('status', 'สถานะ', (ctx && ctx.statuses) || [], r.status, true) +
+          fieldTxt('next_date', 'วันนัดติดตามครั้งต่อไป', r.next_date, false, 'date') +
+          '</div></div>' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-house-fill"></i> สภาพที่อยู่อาศัย</div>' +
+          '<div class="form-grid">' +
+          fieldTxt('informant', 'ผู้ให้ข้อมูล', r.informant, false, 'text') +
+          fieldSel('informant_relation', 'ความสัมพันธ์', ['บิดา', 'มารดา', 'ปู่/ย่า', 'ตา/ยาย', 'ผู้ปกครอง', 'อื่น ๆ'], r.informant_relation, false) +
+          fieldTxt('family_members', 'จำนวนสมาชิกในครอบครัว', r.family_members, false, 'number') +
+          fieldSel('house_type', 'ลักษณะที่อยู่อาศัย', ['บ้านตนเอง', 'บ้านเช่า', 'อาศัยกับญาติ', 'บ้านพักราชการ', 'อื่น ๆ'], r.house_type, false) +
+          fieldSel('economic', 'สภาพเศรษฐกิจ', ['เพียงพอ', 'พอใช้', 'ค่อนข้างขาดแคลน', 'ขาดแคลน'], r.economic, false) +
+          fieldTxt('income_month', 'รายได้ครอบครัวต่อเดือน (บาท)', r.income_month, false, 'number') +
+          fieldSel('travel', 'การเดินทางมาโรงเรียน', ['เดินเท้า', 'จักรยาน', 'รถจักรยานยนต์', 'รถรับส่งนักเรียน', 'ผู้ปกครองรับส่ง', 'รถโดยสารประจำทาง'], r.travel, false) +
+          '<div class="field full"><label>ที่อยู่ที่ไปเยี่ยม</label>' +
+          '<textarea class="txt" data-f="address" rows="2">' + esc(r.address || '') + '</textarea></div>' +
+          '<div class="field full"><label>สภาพที่อยู่อาศัย</label>' +
+          '<textarea class="txt" data-f="house_condition" rows="2">' + esc(r.house_condition || '') + '</textarea></div>' +
+          '</div></div>' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-people-fill"></i> สภาพแวดล้อมและครอบครัว</div>' +
+          '<div class="form-grid">' +
+          '<div class="field full"><label>สภาพแวดล้อมรอบบ้าน</label>' +
+          '<textarea class="txt" data-f="environment" rows="2">' + esc(r.environment || '') + '</textarea></div>' +
+          '<div class="field"><label>ความสัมพันธ์ในครอบครัว</label>' +
+          '<textarea class="txt" data-f="relationship" rows="2">' + esc(r.relationship || '') + '</textarea></div>' +
+          '<div class="field"><label>การสนับสนุนด้านการเรียน</label>' +
+          '<textarea class="txt" data-f="learning_support" rows="2">' + esc(r.learning_support || '') + '</textarea></div>' +
+          '<div class="field full"><label>ปัญหา / ความต้องการ</label>' +
+          '<textarea class="txt" data-f="problems" rows="2">' + esc(r.problems || '') + '</textarea></div>' +
+          '<div class="field full"><label>ข้อเสนอแนะ / แนวทางช่วยเหลือ</label>' +
+          '<textarea class="txt" data-f="suggestion" rows="2">' + esc(r.suggestion || '') + '</textarea></div>' +
+          '</div></div>' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-camera-fill"></i> ภาพถ่ายและพิกัด</div>' +
+          '<div class="upload"><div class="upload-pv" id="pv-vis">' +
+          (r.photo_url ? '<img src="' + esc(r.photo_url) + '" alt="ภาพบ้าน" referrerpolicy="no-referrer">' : '<i class="bi bi-camera"></i>') +
+          '</div><div style="flex:1"><label class="btn btn-ghost btn-sm"><i class="bi bi-upload"></i> เลือกภาพถ่าย' +
+          '<input type="file" id="vis-photo" accept="image/png,image/jpeg,image/webp"></label>' +
+          '<div class="hint">เลือกจากคลังภาพหรือถ่ายใหม่ได้ · JPG · PNG · WEBP ไม่เกิน 8 MB</div></div></div>' +
+          '<div class="form-grid" style="margin-top:12px">' +
+          fieldTxt('lat', 'ละติจูด (ถ้าต้องการ)', r.lat, false, 'text') +
+          fieldTxt('lng', 'ลองจิจูด (ถ้าต้องการ)', r.lng, false, 'text') +
+          '</div>' +
+          '<div class="hint"><i class="bi bi-shield-lock"></i> พิกัดเป็นข้อมูลส่วนบุคคล — กรอกเฉพาะเมื่อจำเป็นและได้รับความยินยอมจากผู้ปกครอง</div>' +
+          '</div>' +
+          '<input type="hidden" data-f="id" value="' + esc(r.id || '') + '">' +
+          '<input type="hidden" data-f="rev" value="' + esc(r.rev || '') + '"></form>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="vis-save" data-state="idle">' + buttonStates('บันทึกการเยี่ยมบ้าน', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var ph = $('#vis-photo', host);
+          if (ph) ph.addEventListener('change', function () { A.previewPhoto(ph, '#pv-vis'); });
+          var sv = $('#vis-save', host);
+          if (sv) sv.addEventListener('click', function () {
+            var data = readForm(host);
+            if (!data.student_id) { toast('กรุณาเลือกนักเรียน', 'warn'); return; }
+            if (ph && ph.dataset.url) data.photo_data = ph.dataset.url;
+            runAction(sv, {}, function () {
+              return call('visit.save', data).then(function () {
+                modalClose(); toast('บันทึกการเยี่ยมบ้านเรียบร้อย', 'ok'); Store.home = null; loadVisit($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     คัดกรอง / ติดตามช่วยเหลือนักเรียน (Case)
+     ═══════════════════════════════════════════════════════════ */
+  var CAS = { q: '', class_id: '', status: '', level: '', page: 1 };
+
+  Routes['#/cases'] = {
+    cap: 'case.view_all|case.view_own',
+    render: function (page, q) {
+      loading(page, 'hero');
+      loadCase(page, q && q.id);
+    }
+  };
+
+  function loadCase(page, openId) {
+    call('case.list', CAS).then(function (d) {
+      var p = guard('#/cases');
+      if (!p) return;
+      paintCase(p, d);
+      if (openId) openCaseView(openId, d);
+    }).catch(function (e) { fail('#/cases', e); });
+  }
+
+  function paintCase(page, d) {
+    var k = d.kpi || {}, can = (d.can || {}).manage;
+    var cards = (d.items || []).map(function (r) {
+      return '<div class="item-card' + (r.overdue ? ' is-alert' : (r.status === 'ปิดเคส' ? ' is-ok' : ' is-warn')) + '" data-case="' + esc(r.id) + '">' +
+        '<div class="ic-head">' + avatar({ url: r.student.photo_url, name: r.student.name, size: 'lg', square: true }) +
+        '<div class="who"><div class="ic-name">' + esc(r.student.name) + '</div>' +
+        '<div class="ic-sub">' + esc(r.student.class_name) + ' · ' + esc(r.case_no) + '</div></div>' +
+        badge(r.status, r.tone) + '</div>' +
+        '<div style="margin-bottom:7px">' + badge(r.level, r.level === 'ส่งต่อ' ? 'bad' : 'warn') + ' ' + badge(r.category, 'mut') + '</div>' +
+        '<div class="ic-body">' + esc((r.problem || '').slice(0, 130)) + '</div>' +
+        '<div class="ic-meta">' +
+        '<span><i class="bi bi-calendar3"></i> เปิด ' + esc(TH.date(r.opened_at)) + '</span>' +
+        '<span><i class="bi bi-arrow-repeat"></i> ติดตาม ' + r.followup_count + ' ครั้ง</span>' +
+        (r.next_date ? '<span style="color:' + (r.overdue ? 'var(--bad)' : 'var(--warn)') + '">' +
+          '<i class="bi bi-alarm-fill"></i> นัด ' + esc(TH.smart(r.next_date)) + '</span>' : '') +
+        '</div>' +
+        '<div class="ic-foot"><span class="sp"></span>' +
+        '<span style="font-size:11.5px;color:var(--ink-3)"><i class="bi bi-person-badge"></i> ' + esc(r.owner || '—') + '</span></div>' +
+        '</div>';
+    }).join('');
+
+    page.innerHTML =
+      '<div class="pr-hide">' + hero({
+        pill: 'ระบบดูแลช่วยเหลือนักเรียน', pillIcon: 'life-preserver', title: 'คัดกรองและติดตามนักเรียน',
+        sub: 'วงจรการช่วยเหลือ: ระบุปัญหา → บันทึกข้อมูล → กำหนดแนวทาง → ดำเนินการ → ติดตามผล → ปิดเคส',
+        icon: 'life-preserver',
+        actions: (can ? '<button class="btn btn-glass" type="button" id="cas-add"><i class="bi bi-plus-lg"></i> เปิดเคสใหม่</button>' : '') + printBtn(),
+        kpis: [
+          { icon: 'folder-fill', label: 'เคสทั้งหมด', value: fmt(k.total), unit: 'เคส' },
+          { icon: 'folder-plus', label: 'เปิดเคส', value: fmt(k.open), unit: 'เคส' },
+          { icon: 'arrow-repeat', label: 'กำลังดำเนินการ', value: fmt(k.progress), unit: 'เคส' },
+          { icon: 'check-circle-fill', label: 'ปิดเคสแล้ว', value: fmt(k.closed), unit: 'เคส' },
+          { icon: 'alarm-fill', label: 'เลยกำหนดติดตาม', value: fmt(k.overdue), unit: 'เคส' }
+        ]
+      }) + '</div>' +
+      panel({
+        title: 'จำนวนเคสตามระดับการดูแล', icon: 'bar-chart-fill', tone: 'bad', cls: 'no-print',
+        body: A.svgHorizBar({ data: d.by_level || [], suffix: 'เคส' })
+      }) +
+      '<div class="toolbar no-print">' +
+      '<div class="tb-search"><i class="bi bi-search"></i>' +
+      '<input class="inp" type="search" id="cas-q" placeholder="ค้นหาเลขเคส ชื่อนักเรียน หรือปัญหา…" value="' + esc(CAS.q) + '"></div>' +
+      '<select class="sel tb-sel" id="cas-class"><option value="">ทุกห้องเรียน</option>' +
+      selectOptions(d.classes || [], CAS.class_id, 'id', 'name') + '</select>' +
+      '<select class="sel tb-sel" id="cas-level"><option value="">ทุกระดับ</option>' +
+      (d.levels || []).map(function (l) {
+        return '<option value="' + esc(l) + '"' + (CAS.level === l ? ' selected' : '') + '>' + esc(l) + '</option>';
+      }).join('') + '</select>' +
+      '<div class="chips">' +
+      A.chip('cst', '', 'ทั้งหมด', CAS.status === '') +
+      (d.statuses || []).map(function (s) { return A.chip('cst', s, s, CAS.status === s); }).join('') +
+      '</div>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="cas-clear"><i class="bi bi-x-circle"></i> ล้างตัวกรอง</button>' +
+      '</div>' +
+      docHead('รายงานการดูแลช่วยเหลือนักเรียน', ((Store.year && Store.year.label) || '')) +
+      (d.total ? '<div class="grid g-auto sd-stagger">' + cards + '</div>'
+        : panel({
+          body: emptyBox({
+            icon: 'emoji-smile', title: 'ยังไม่มีเคสติดตาม',
+            text: 'เมื่อพบนักเรียนที่ต้องได้รับการดูแลเป็นพิเศษ ให้เปิดเคสเพื่อวางแผนช่วยเหลือและติดตามผล',
+            action: can ? '<button class="btn btn-primary" type="button" id="cas-add2"><i class="bi bi-plus-lg"></i> เปิดเคสแรก</button>' : ''
+          })
+        })) +
+      '<div class="no-print">' + pager({ page: d.page, pages: d.pages, total: d.total }) + '</div>' +
+      docSign();
+
+    var q = $('#cas-q');
+    if (q) q.addEventListener('input', A.debounce(function () { CAS.q = q.value; CAS.page = 1; loadCase($('#page')); }, 300));
+    var cl = $('#cas-class');
+    if (cl) cl.addEventListener('change', function () { CAS.class_id = cl.value; CAS.page = 1; loadCase($('#page')); });
+    var lv = $('#cas-level');
+    if (lv) lv.addEventListener('change', function () { CAS.level = lv.value; CAS.page = 1; loadCase($('#page')); });
+    $$('[data-chip="cst"]').forEach(function (b) {
+      b.addEventListener('click', function () { CAS.status = b.getAttribute('data-val'); CAS.page = 1; loadCase($('#page')); });
+    });
+    var cr = $('#cas-clear');
+    if (cr) cr.addEventListener('click', function () { CAS.q = ''; CAS.class_id = ''; CAS.status = ''; CAS.level = ''; CAS.page = 1; loadCase($('#page')); });
+    $$('.pager button').forEach(function (b) {
+      b.addEventListener('click', function () { CAS.page = num(b.getAttribute('data-page'), 1); loadCase($('#page')); });
+    });
+    ['#cas-add', '#cas-add2'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.addEventListener('click', function () { openCaseForm(null, d); });
+    });
+    $$('[data-case]').forEach(function (el) {
+      el.addEventListener('click', function () { openCaseView(el.getAttribute('data-case'), d); });
+    });
+  }
+
+  function openCaseView(id, ctx) {
+    A.spinShow('กำลังเปิดข้อมูลเคส');
+    call('case.get', { id: id }).then(function (d) {
+      A.spinHide();
+      var r = d.item || {}, s = d.student || {}, can = (d.can || {}).manage;
+      var fups = (d.followups || []).map(function (f) {
+        return '<div class="tl-item"><div class="tl-ic t-info"><i class="bi bi-arrow-repeat"></i></div>' +
+          '<div class="tl-t">' + esc(TH.dateLong(f.date)) + '</div>' +
+          '<div class="tl-d">' + esc(f.detail) + '</div>' +
+          (f.result ? '<div class="tl-d" style="color:var(--ok)"><i class="bi bi-check2"></i> ' + esc(f.result) + '</div>' : '') +
+          '<div class="tl-w"><i class="bi bi-person"></i> ' + esc(f.by || '—') +
+          (f.next_date ? ' · <i class="bi bi-alarm"></i> นัดครั้งต่อไป ' + esc(TH.date(f.next_date)) : '') + '</div>' +
+          '</div>';
+      }).join('');
+
+      modal({
+        size: 'lg', custom: true,
+        header: '<div class="mh-hero"><button class="x" type="button" data-close="1" aria-label="ปิด"><i class="bi bi-x-lg"></i></button>' +
+          '<div class="mh-row">' + avatar({ url: s.photo_url, name: s.name, size: 'xl' }) +
+          '<div style="min-width:0"><div class="mh-t">' + esc(r.case_no) + '</div>' +
+          '<div class="mh-s">' + esc(s.name) + ' · ' + esc(s.class_name) + ' · ' + esc(r.category) + '</div></div></div>' +
+          '<div class="mh-stats">' +
+          '<div class="mh-stat"><div class="l">สถานะ</div><div class="v" style="font-size:14px">' + esc(r.status) + '</div></div>' +
+          '<div class="mh-stat"><div class="l">ระดับการดูแล</div><div class="v" style="font-size:14px">' + esc(r.level) + '</div></div>' +
+          '<div class="mh-stat"><div class="l">ติดตามแล้ว</div><div class="v">' + (d.followups || []).length + '</div></div>' +
+          '</div></div>',
+        body:
+          '<div class="sec"><div class="sec-t"><i class="bi bi-exclamation-circle-fill"></i> ปัญหาที่พบ</div>' +
+          '<div style="font-size:13.5px;line-height:1.8">' + esc(r.problem) + '</div></div>' +
+          (r.cause ? '<div class="sec"><div class="sec-t"><i class="bi bi-search"></i> สาเหตุ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.cause) + '</div></div>' : '') +
+          (r.plan ? '<div class="sec"><div class="sec-t"><i class="bi bi-lightbulb-fill"></i> แนวทางช่วยเหลือ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.plan) + '</div></div>' : '') +
+          (r.result ? '<div class="sec"><div class="sec-t"><i class="bi bi-flag-fill"></i> ผลการดำเนินการ</div>' +
+            '<div style="font-size:13.5px;line-height:1.8">' + esc(r.result) + '</div></div>' : '') +
+          '<div class="sec"><dl class="dl">' +
+          A.dlRow('ผู้รับผิดชอบ', r.owner) + A.dlRow('เปิดเคสเมื่อ', TH.dateLong(r.opened_at)) +
+          A.dlRow('นัดติดตามครั้งต่อไป', r.next_date ? TH.dateLong(r.next_date) : '—') +
+          A.dlRow('ปิดเคสเมื่อ', r.closed_at ? TH.dateLong(r.closed_at) : '—') + '</dl></div>' +
+          '<div class="sec"><div class="sec-t"><i class="bi bi-clock-history"></i> ประวัติการติดตาม</div>' +
+          (fups ? '<div class="tl">' + fups + '</div>'
+            : emptyBox({ icon: 'clock', title: 'ยังไม่มีการติดตาม', text: 'กดปุ่ม "บันทึกการติดตาม" เพื่อเริ่มบันทึกความคืบหน้า' })) + '</div>' +
+          '<div class="sec"><button class="btn btn-soft btn-sm" type="button" data-hash="#/student?id=' + esc(s.id) + '">' +
+          '<i class="bi bi-person-vcard-fill"></i> เปิดโปรไฟล์นักเรียน</button></div>',
+        footer: can ? '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>' +
+          '<button class="btn btn-ghost" type="button" id="cas-edit"><i class="bi bi-pencil-fill"></i> แก้ไขเคส</button>' +
+          (r.status !== 'ปิดเคส' ? '<button class="btn btn-primary" type="button" id="cas-fup">' +
+            '<i class="bi bi-arrow-repeat"></i> บันทึกการติดตาม</button>' : '')
+          : '<button class="btn btn-ghost" type="button" data-close="1">ปิด</button>',
+        onOpen: function (host) {
+          var ed = $('#cas-edit', host);
+          if (ed) ed.addEventListener('click', function () { modalClose(); openCaseForm(Object.assign({}, r, { student: s }), ctx); });
+          var fu = $('#cas-fup', host);
+          if (fu) fu.addEventListener('click', function () { modalClose(); openFollowupForm(r); });
+        }
+      });
+    }).catch(function (e) { A.spinHide(); toast(e.message, 'bad'); });
+  }
+
+  function openCaseForm(r, ctx) {
+    var cur = r || { level: 'เฝ้าระวัง', status: 'เปิดเคส' };
+    loadStudentOptions().then(function () {
+      modal({
+        size: 'lg',
+        title: cur.id ? 'แก้ไขเคส ' + (cur.case_no || '') : 'เปิดเคสติดตามนักเรียน',
+        icon: 'life-preserver', tone: 'bad',
+        body: '<form id="cas-form"><div class="form-grid">' +
+          '<div class="field full">' + studentSelect(cur.student ? cur.student.id : '', 'cas-stu') + '</div>' +
+          fieldSel('category', 'ประเภทปัญหา', (ctx && ctx.categories) || [], cur.category, true) +
+          fieldSel('level', 'ระดับการดูแล', (ctx && ctx.levels) || ['เฝ้าระวัง', 'ต้องติดตาม', 'ต้องช่วยเหลือ', 'ส่งต่อ'], cur.level, true) +
+          fieldSel('status', 'สถานะเคส', (ctx && ctx.statuses) || ['เปิดเคส', 'กำลังดำเนินการ', 'ปิดเคส'], cur.status, true) +
+          fieldTxt('next_date', 'นัดติดตามครั้งต่อไป', cur.next_date, false, 'date') +
+          '<div class="field full"><label>ปัญหาที่พบ<span class="req">*</span></label>' +
+          '<textarea class="txt" data-f="problem" rows="2" required>' + esc(cur.problem || '') + '</textarea></div>' +
+          '<div class="field"><label>สาเหตุ</label>' +
+          '<textarea class="txt" data-f="cause" rows="2">' + esc(cur.cause || '') + '</textarea></div>' +
+          '<div class="field"><label>แนวทางช่วยเหลือ</label>' +
+          '<textarea class="txt" data-f="plan" rows="2">' + esc(cur.plan || '') + '</textarea></div>' +
+          '<div class="field full"><label>ผลการดำเนินการ (กรอกเมื่อปิดเคส)</label>' +
+          '<textarea class="txt" data-f="result" rows="2">' + esc(cur.result || '') + '</textarea></div>' +
+          '</div>' +
+          '<div class="hint" style="margin-top:6px"><i class="bi bi-info-circle"></i> ' +
+          'ระบบจะปรับ "ระดับการดูแล" ของนักเรียนให้ตรงกับเคสอัตโนมัติ และสร้างงานติดตามในปฏิทินให้ตามวันที่นัด</div>' +
+          '<input type="hidden" data-f="id" value="' + esc(cur.id || '') + '">' +
+          '<input type="hidden" data-f="rev" value="' + esc(cur.rev || '') + '"></form>',
+        footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+          '<button class="btn btn-primary" type="button" id="cas-save" data-state="idle">' + buttonStates('บันทึกเคส', 'check-lg') + '</button>',
+        onOpen: function (host) {
+          var sv = $('#cas-save', host);
+          if (!sv) return;
+          sv.addEventListener('click', function () {
+            var data = readForm(host);
+            if (!data.student_id) { toast('กรุณาเลือกนักเรียน', 'warn'); return; }
+            if (!String(data.problem || '').trim()) { toast('กรุณาระบุปัญหาที่พบ', 'warn'); return; }
+            runAction(sv, {}, function () {
+              return call('case.save', data).then(function () {
+                modalClose(); toast('บันทึกเคสเรียบร้อย', 'ok'); Store.home = null; loadCase($('#page'));
+              });
+            });
+          });
+        }
+      });
+    }).catch(function (e) { toast(e.message, 'bad'); });
+  }
+
+  function openFollowupForm(c) {
+    modal({
+      title: 'บันทึกการติดตาม · ' + (c.case_no || ''),
+      icon: 'arrow-repeat', tone: 'info',
+      body: '<form id="fup-form"><div class="form-grid">' +
+        fieldTxt('date', 'วันที่ติดตาม', TH.iso(new Date()), true, 'date') +
+        fieldTxt('next_date', 'นัดครั้งต่อไป', '', false, 'date') +
+        '<div class="field full"><label>รายละเอียดการติดตาม<span class="req">*</span></label>' +
+        '<textarea class="txt" data-f="detail" rows="3" placeholder="สิ่งที่ดำเนินการและผลที่พบ" required></textarea></div>' +
+        '<div class="field full"><label>ผลการติดตาม</label>' +
+        '<textarea class="txt" data-f="result" rows="2"></textarea></div>' +
+        '<div class="field full"><label class="switch"><input type="checkbox" data-f="close_case">' +
+        '<span class="track"></span><span class="lb">ปิดเคสนี้ (นักเรียนดีขึ้นแล้ว ไม่ต้องติดตามต่อ)</span></label></div>' +
+        '</div>' +
+        '<input type="hidden" data-f="case_id" value="' + esc(c.id) + '"></form>',
+      footer: '<button class="btn btn-ghost" type="button" data-close="1"><i class="bi bi-x-lg"></i> ยกเลิก</button>' +
+        '<button class="btn btn-primary" type="button" id="fup-save" data-state="idle">' + buttonStates('บันทึกการติดตาม', 'check-lg') + '</button>',
+      onOpen: function (host) {
+        var sv = $('#fup-save', host);
+        if (!sv) return;
+        sv.addEventListener('click', function () {
+          var data = readForm(host);
+          if (!String(data.detail || '').trim()) { toast('กรุณากรอกรายละเอียดการติดตาม', 'warn'); return; }
+          runAction(sv, {}, function () {
+            return call('case.followup', data).then(function () {
+              modalClose();
+              toast(data.close_case ? 'ปิดเคสเรียบร้อย' : 'บันทึกการติดตามเรียบร้อย', 'ok');
+              Store.home = null;
+              loadCase($('#page'));
+            });
+          });
+        });
+      }
+    });
+  }
+
+  A.RESETTERS.push(function () {
+    ATT.date = ''; ATT.class_id = ''; ATT.draft = {};
+    HIS.class_id = ''; HIS.from = ''; HIS.to = '';
+    STU_CACHE = null;
+    DLY.q = ''; DLY.class_id = ''; DLY.category = ''; DLY.page = 1;
+    BEH.q = ''; BEH.class_id = ''; BEH.type = ''; BEH.severity = ''; BEH.page = 1;
+    CON.q = ''; CON.channel = ''; CON.page = 1;
+    VIS.q = ''; VIS.class_id = ''; VIS.status = ''; VIS.page = 1;
+    CAS.q = ''; CAS.class_id = ''; CAS.status = ''; CAS.level = ''; CAS.page = 1;
+  });
+
+  A.loadStudentOptions = loadStudentOptions;
+  A.studentSelect = studentSelect;
+  A.filterBar = filterBar;
+  A.wireFilterBar = wireFilterBar;
+})(window);
+</script>

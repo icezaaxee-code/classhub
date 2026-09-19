@@ -1,0 +1,61 @@
+<!--
+  App        : CLASSHUB — ศูนย์กลางงานธุรการชั้นเรียน
+  File       : Scripts.html — ตัวโหลดสคริปต์ (อ่านบล็อก inert แล้วฉีดเข้า DOM)
+  Version    : 1.0.0
+  Last Update: 2026-08-20
+  Developer  : นายอรรถสิทธิ์ คำจารย์
+  License    : ใช้งานเพื่อการศึกษาและราชการ
+  Notice     : ห้ามจำหน่าย · แบ่งปันเพื่อการศึกษาและต่อยอดเท่านั้น
+  ─────────────────────────────────────────────────────────────
+  ทำไมต้องมีชั้นนี้:
+    HtmlService ทำ document.write ของสคริปต์ inline ขนาดใหญ่แล้วพัง
+    (Invalid or unexpected token) จึงเก็บโค้ดไว้ในบล็อกชนิด text/x-app-*
+    ซึ่งเบราว์เซอร์ไม่รัน แล้วค่อยอ่าน textContent มาสร้างแท็กสคริปต์จริงทีละบล็อก
+  ★ ต้องกวาดด้วย querySelectorAll('script[type^="text/x-app"]')
+    ไม่ใช่ getElementById เดียว — ไม่งั้นหน้าที่อยู่ในบล็อกที่ 2 เป็นต้นไปหายเงียบ
+-->
+<script>
+(function () {
+  'use strict';
+
+  function injectAll() {
+    var blocks = document.querySelectorAll('script[type^="text/x-app"]');
+    for (var i = 0; i < blocks.length; i++) {
+      try {
+        var s = document.createElement('script');
+        s.text = blocks[i].textContent;
+        document.body.appendChild(s);
+      } catch (e) {
+        var sub = document.getElementById('boot-sub');
+        if (sub) sub.textContent = 'โหลดสคริปต์ไม่สำเร็จ: ' + e.message;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function start() {
+    if (!injectAll()) return;
+    if (window.APP && typeof window.APP.boot === 'function') {
+      window.APP.boot();
+    } else {
+      var box = document.getElementById('boot-err');
+      if (box) {
+        box.hidden = false;
+        box.textContent = 'ไม่พบตัวเริ่มระบบ (APP.boot) — กรุณารีเฟรชหน้าเว็บอีกครั้ง';
+      }
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+
+  window.addEventListener('load', function () {
+    var el = document.getElementById('css-anim');
+    if (el) el.media = 'all';
+  });
+})();
+</script>
